@@ -13,7 +13,7 @@ export const COLORS = {
   },
   green: {
     name: 'Grass',
-    theme: 'Growing creatures and life gain',
+    theme: 'Growing your creatures and gaining life',
   },
 };
 
