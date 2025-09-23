@@ -13,6 +13,7 @@ import {
   freezeCreature,
   getCreatureStats,
   grantHaste,
+  grantShimmer,
   instantiateToken,
   registerWinnerHook,
   removeFromBattlefield,
@@ -129,10 +130,12 @@ export function prepareSpell(playerIndex, card) {
     type: 'spell',
     controller: playerIndex,
     card,
+    effects: card.effects || [],
     requirements,
     requirementIndex: 0,
     selectedTargets: [],
     chosenTargets: {},
+    cancellable: true,
   };
   addLog(`${player.name} prepares ${card.name}.`);
   if (requirements.length === 0) {
@@ -142,10 +145,9 @@ export function prepareSpell(playerIndex, card) {
   }
 }
 
-export function computeRequirements(card) {
-  if (!card.effects) return [];
+function buildEffectRequirements(effects = []) {
   const reqs = [];
-  card.effects.forEach((effect, idx) => {
+  effects.forEach((effect, idx) => {
     const requirementBase = { effectIndex: idx, effect };
     switch (effect.type) {
       case 'damage': {
@@ -161,6 +163,12 @@ export function computeRequirements(card) {
         break;
       }
       case 'temporaryBuff': {
+        if (effect.target === 'friendly-creature' || effect.target === 'any-creature') {
+          reqs.push({ ...requirementBase, count: 1, target: effect.target });
+        }
+        break;
+      }
+      case 'grantShimmer': {
         if (effect.target === 'friendly-creature' || effect.target === 'any-creature') {
           reqs.push({ ...requirementBase, count: 1, target: effect.target });
         }
@@ -200,6 +208,11 @@ export function computeRequirements(card) {
   return reqs;
 }
 
+export function computeRequirements(card) {
+  if (!card.effects) return [];
+  return buildEffectRequirements(card.effects);
+}
+
 export function handleTargetSelection(creature, controller) {
   const pending = state.game.pendingAction;
   if (!pending) return;
@@ -227,7 +240,11 @@ export function finalizeCurrentRequirement() {
   pending.selectedTargets = [];
   pending.requirementIndex += 1;
   if (pending.requirementIndex >= pending.requirements.length) {
-    executeSpell(pending);
+    if (pending.type === 'trigger') {
+      resolveTriggeredPending(pending);
+    } else {
+      executeSpell(pending);
+    }
   } else {
     requestRender();
   }
@@ -235,11 +252,14 @@ export function finalizeCurrentRequirement() {
 
 export function cancelPendingAction() {
   const game = state.game;
-  if (game.pendingAction) {
-    game.pendingAction = null;
-    addLog('Spell cancelled.');
-    requestRender();
+  if (!game.pendingAction) return;
+  if (game.pendingAction.cancellable === false) {
+    return;
   }
+  const cancelled = game.pendingAction.type === 'spell' ? `${game.pendingAction.card.name}` : 'action';
+  game.pendingAction = null;
+  addLog(`${cancelled} cancelled.`);
+  requestRender();
 }
 
 export function executeSpell(pending) {
@@ -248,7 +268,7 @@ export function executeSpell(pending) {
   removeFromHand(player, pending.card.instanceId);
   spendMana(player, pending.card.cost ?? 0);
   addLog(`${player.name} casts ${pending.card.name}.`);
-  resolveEffects(pending.card.effects || [], pending);
+  resolveEffects(pending.effects, pending);
   player.graveyard.push(pending.card);
   game.pendingAction = null;
   requestRender();
@@ -319,6 +339,21 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     }
     case 'grantHaste': {
       targets.forEach((target) => grantHaste(target.creature, effect.duration));
+      break;
+    }
+    case 'grantShimmer': {
+      targets.forEach((target) => grantShimmer(target.creature, effect.duration));
+      break;
+    }
+    case 'globalBuff': {
+      controller.battlefield
+        .filter((c) => c.type === 'creature')
+        .forEach((creature) => {
+          if (effect.scope === 'other-friendly' && sourceCard && creature.instanceId === sourceCard.instanceId) {
+            return;
+          }
+          applyPermanentBuff(creature, effect.attack, effect.toughness);
+        });
       break;
     }
     case 'createToken': {
@@ -418,12 +453,18 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
 
 function isTargetValid(creature, controller, requirement, pending) {
   if (requirement.target === 'friendly-creature') {
+    if (requirement.effect?.excludeSelf && pending.card && creature.instanceId === pending.card.instanceId) {
+      return false;
+    }
     return controller === pending.controller;
   }
   if (requirement.target === 'enemy-creature') {
     return controller !== pending.controller;
   }
   if (requirement.target === 'any-creature' || requirement.target === 'any' || requirement.target === 'creature') {
+    if (requirement.effect?.excludeSelf && pending.card && creature.instanceId === pending.card.instanceId) {
+      return false;
+    }
     return true;
   }
   return false;
@@ -450,65 +491,191 @@ export function describeRequirement(requirement) {
   }
 }
 
+function resolveTriggeredPending(pending) {
+  const game = state.game;
+  resolveEffects(pending.effects, pending);
+  if (game.pendingAction === pending) {
+    game.pendingAction = null;
+  }
+  requestRender();
+  checkForWinner();
+  continueAIIfNeeded();
+}
+
+const TARGETABLE_EFFECT_TYPES = new Set(['bounce', 'buff', 'temporaryBuff', 'freeze', 'heal', 'grantShimmer', 'damage']);
+const FRIENDLY_EFFECT_TYPES = new Set(['buff', 'temporaryBuff', 'heal', 'grantShimmer']);
+const TARGETABLE_TARGETS = new Set(['friendly-creature', 'enemy-creature', 'any-creature', 'creature', 'any']);
+
+function effectRequiresChoice(effect) {
+  if (!effect) return false;
+  if (!TARGETABLE_TARGETS.has(effect.target)) return false;
+  if (effect.target === 'any' && effect.type !== 'damage') {
+    return false;
+  }
+  return TARGETABLE_EFFECT_TYPES.has(effect.type);
+}
+
+function getValidTargetsForRequirement(requirement, controllerIndex, sourceCard) {
+  const game = state.game;
+  const controller = game.players[controllerIndex];
+  const opponentIndex = controllerIndex === 0 ? 1 : 0;
+  const opponent = game.players[opponentIndex];
+
+  const mapCreatures = (cards, ownerIndex) =>
+    cards
+      .filter((c) => c.type === 'creature')
+      .filter((c) => !(requirement.effect?.excludeSelf && sourceCard && c.instanceId === sourceCard.instanceId))
+      .map((creature) => ({ creature, controller: ownerIndex }));
+
+  switch (requirement.target) {
+    case 'friendly-creature':
+      return mapCreatures(controller.battlefield, controllerIndex);
+    case 'enemy-creature':
+      return mapCreatures(opponent.battlefield, opponentIndex);
+    case 'any-creature':
+    case 'creature':
+    case 'any':
+      return [
+        ...mapCreatures(controller.battlefield, controllerIndex),
+        ...mapCreatures(opponent.battlefield, opponentIndex),
+      ];
+    default:
+      return [];
+  }
+}
+
+function autoSelectTargetsForRequirement(requirement, controllerIndex, sourceCard) {
+  const game = state.game;
+  const controller = game.players[controllerIndex];
+  const opponentIndex = controllerIndex === 0 ? 1 : 0;
+  const opponent = game.players[opponentIndex];
+  const desired = requirement.count ?? 1;
+
+  const selectCreatures = (cards, ownerIndex, count) =>
+    cards
+      .filter((c) => c.type === 'creature')
+      .filter((c) => !(requirement.effect?.excludeSelf && sourceCard && c.instanceId === sourceCard.instanceId))
+      .sort(
+        (a, b) =>
+          getCreatureStats(b, ownerIndex, game).attack - getCreatureStats(a, ownerIndex, game).attack,
+      )
+      .slice(0, count)
+      .map((creature) => ({ creature, controller: ownerIndex }));
+
+  switch (requirement.target) {
+    case 'friendly-creature':
+      return selectCreatures(controller.battlefield, controllerIndex, desired);
+    case 'enemy-creature':
+      return selectCreatures(opponent.battlefield, opponentIndex, desired);
+    case 'any-creature':
+    case 'creature':
+    case 'any': {
+      const preferFriendly = FRIENDLY_EFFECT_TYPES.has(requirement.effect?.type);
+      let friendly = [];
+      if (preferFriendly) {
+        friendly = selectCreatures(controller.battlefield, controllerIndex, desired);
+        if (friendly.length >= desired) {
+          return friendly;
+        }
+      }
+      const enemy = selectCreatures(opponent.battlefield, opponentIndex, desired);
+      if (enemy.length >= desired) {
+        return enemy;
+      }
+      if (!preferFriendly) {
+        return enemy.length ? enemy : [];
+      }
+      return friendly.length ? friendly : enemy;
+    }
+    default:
+      return [];
+  }
+}
+
 export function handlePassive(card, controllerIndex, trigger) {
   if (!card.passive || card.passive.type !== trigger) return;
   const effect = card.passive.effect;
   if (!effect) return;
+  const description = card.passive.description;
+  const opponentIndex = controllerIndex === 0 ? 1 : 0;
+
   const pending = {
+    type: 'trigger',
     controller: controllerIndex,
     card,
+    effects: [effect],
     requirements: [],
     requirementIndex: 0,
     selectedTargets: [],
     chosenTargets: {},
+    cancellable: false,
   };
-  if (effect.type === 'damage' && effect.target === 'opponent') {
-    dealDamageToPlayer(controllerIndex === 0 ? 1 : 0, effect.amount);
-    return;
-  }
-  if (effect.type === 'damage' && effect.target === 'enemy-creature') {
-    const enemy = state.game.players[controllerIndex === 0 ? 1 : 0].battlefield.find((c) => c.type === 'creature');
-    if (enemy) {
-      dealDamageToCreature(enemy, controllerIndex === 0 ? 1 : 0, effect.amount);
-    }
-    return;
-  }
+
   if (effect.type === 'damage' && effect.target === 'any') {
-    const enemySide = state.game.players[controllerIndex === 0 ? 1 : 0];
-    const enemyCreature = enemySide.battlefield
-      .filter((c) => c.type === 'creature')
-      .sort(
-        (a, b) =>
-          getCreatureStats(b, controllerIndex === 0 ? 1 : 0, state.game).toughness -
-          getCreatureStats(a, controllerIndex === 0 ? 1 : 0, state.game).toughness,
-      )[0];
-    if (enemyCreature) {
-      dealDamageToCreature(enemyCreature, controllerIndex === 0 ? 1 : 0, effect.amount);
-    } else {
-      dealDamageToPlayer(controllerIndex === 0 ? 1 : 0, effect.amount);
+    if (description) {
+      addLog(`${card.name} triggers: ${description}`);
     }
+    const requirements = buildEffectRequirements([effect]);
+    if (requirements.length) {
+      pending.requirements = requirements;
+      const requirement = requirements[0];
+      const requiredCount = requirement.count ?? 1;
+      const autoTargets = autoSelectTargetsForRequirement(requirement, controllerIndex, card);
+      if (autoTargets.length) {
+        pending.chosenTargets[requirement.effectIndex] = autoTargets.slice(0, requiredCount);
+        resolveTriggeredPending(pending);
+        return;
+      }
+    }
+    dealDamageToPlayer(opponentIndex, effect.amount);
+    requestRender();
+    checkForWinner();
+    continueAIIfNeeded();
     return;
   }
-  if (effect.type === 'buff' && effect.excludeSelf) {
-    const allies = state.game.players[controllerIndex].battlefield
-      .filter((c) => c.instanceId !== card.instanceId && c.type === 'creature')
-      .sort((a, b) => getCreatureStats(b, controllerIndex, state.game).attack - getCreatureStats(a, controllerIndex, state.game).attack);
-    if (allies.length) {
-      applyPermanentBuff(allies[0], effect.attack, effect.toughness);
+
+  if (description) {
+    addLog(`${card.name} triggers: ${description}`);
+  }
+
+  const requiresChoice = effectRequiresChoice(effect);
+  if (requiresChoice) {
+    const requirements = buildEffectRequirements([effect]);
+    if (requirements.length) {
+      pending.requirements = requirements;
+      const player = state.game.players[controllerIndex];
+      const isHuman = !player.isAI;
+      let needsSelection = false;
+
+      requirements.forEach((requirement) => {
+        const validTargets = getValidTargetsForRequirement(requirement, controllerIndex, card);
+        if (validTargets.length === 0) {
+          pending.chosenTargets[requirement.effectIndex] = [];
+          return;
+        }
+        const requiredCount = requirement.count ?? 1;
+        const autoTargets = autoSelectTargetsForRequirement(requirement, controllerIndex, card);
+        const uniqueChoices = validTargets.length > requiredCount;
+        const canPlayerChoose =
+          requirement.target !== 'any' && isHuman && uniqueChoices && requiredCount > 0;
+
+        if (canPlayerChoose) {
+          needsSelection = true;
+          return;
+        }
+
+        pending.chosenTargets[requirement.effectIndex] = autoTargets.slice(0, requiredCount);
+      });
+
+      if (needsSelection) {
+        state.game.pendingAction = pending;
+        requestRender();
+        return;
+      }
     }
-    return;
   }
-  if (effect.type === 'globalBuff') {
-    state.game.players[controllerIndex].battlefield
-      .filter((c) => c.type === 'creature')
-      .forEach((creature) => applyPermanentBuff(creature, effect.attack, effect.toughness));
-  }
-  if (effect.type === 'gainLife') {
-    state.game.players[controllerIndex].life += effect.amount;
-  }
-  if (effect.type === 'draw') {
-    drawCards(state.game.players[controllerIndex], effect.amount);
-  }
+
+  resolveTriggeredPending(pending);
 }
 
 export function activateCreatureAbility(creatureId) {
@@ -517,7 +684,7 @@ export function activateCreatureAbility(creatureId) {
   if (!creature || !creature.activated || creature.activatedThisTurn) return;
   if (game.players[0].availableMana < creature.activated.cost) return;
   spendMana(game.players[0], creature.activated.cost);
-  creature.activatedThisTurn = creature.activated.oncePerTurn || false;
+  creature.activatedThisTurn = true;
   const effect = creature.activated.effect;
   const pending = { controller: 0, card: creature, requirements: [], requirementIndex: 0, selectedTargets: [], chosenTargets: {} };
   if (effect.type === 'selfBuff') {

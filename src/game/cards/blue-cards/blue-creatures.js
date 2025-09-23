@@ -99,12 +99,13 @@ export const blueCreatures = [
     color: 'blue',
     attack: 4,
     toughness: 4,
+    abilities: { shimmer: true },
     passive: {
       type: 'onEnter',
       description: 'Draw two cards.',
       effect: { type: 'draw', amount: 2 },
     },
-    text: 'Arrives with knowledge from the sky.',
+    text: 'Shimmer (unblockable). Arrives with knowledge from the sky.',
   },
   {
     id: 'blue_creature_9',

@@ -45,7 +45,7 @@ export const greenCreatures = [
     activated: {
       type: 'active',
       cost: 1,
-      oncePerTurn: false,
+      oncePerTurn: true,
       description: 'Spend 1 mana: Give a creature +0/+2 permanently.',
       effect: { type: 'buff', target: 'friendly-creature', attack: 0, toughness: 2 },
     },

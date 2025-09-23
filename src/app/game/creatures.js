@@ -25,6 +25,24 @@ export function instantiateToken(tokenDef, color) {
   return instance;
 }
 
+export function hasShimmer(creature) {
+  if (!creature) return false;
+  if (creature.abilities?.shimmer) return true;
+  return Boolean(creature.buffs?.some((buff) => buff?.shimmer));
+}
+
+export function grantShimmer(creature, duration = 'turn') {
+  if (!creature) return;
+  if (duration === 'permanent') {
+    creature.abilities = creature.abilities || {};
+    creature.abilities.shimmer = true;
+    return;
+  }
+  creature.buffs = creature.buffs || [];
+  const expires = duration === 'turn' ? 'endOfTurn' : duration;
+  creature.buffs.push({ attack: 0, toughness: 0, shimmer: true, duration: expires });
+}
+
 export function bounceCreature(creature, controllerIndex) {
   const player = state.game.players[controllerIndex];
   removeFromBattlefield(player, creature.instanceId);
