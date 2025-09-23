@@ -1,6 +1,6 @@
 import { buildDeck, COLORS } from '../../game/cards/index.js';
 import { state, requestRender } from '../state.js';
-import { addLog } from './log.js';
+import { addLog, cardSegment, damageSegment, healSegment, playerSegment, textSegment } from './log.js';
 import {
   addTemporaryBuff,
   applyPermanentBuff,
@@ -80,7 +80,7 @@ function rollForInitiative() {
 export function drawCards(player, amount) {
   for (let i = 0; i < amount; i += 1) {
     if (!player.deck.length) {
-      addLog(`${player.name} cannot draw more cards.`);
+      addLog([playerSegment(player), textSegment(' cannot draw more cards.')]);
       break;
     }
     const card = player.deck.pop();
@@ -118,7 +118,7 @@ export function playCreature(playerIndex, card) {
   card.damageMarked = 0;
   card.buffs = [];
   player.battlefield.push(card);
-  addLog(`${player.name} summons ${card.name}.`);
+  addLog([playerSegment(player), textSegment(' summons '), cardSegment(card), textSegment('.')]);
   handlePassive(card, playerIndex, 'onEnter');
 }
 
@@ -137,7 +137,7 @@ export function prepareSpell(playerIndex, card) {
     chosenTargets: {},
     cancellable: true,
   };
-  addLog(`${player.name} prepares ${card.name}.`);
+  addLog([playerSegment(player), textSegment(' prepares '), cardSegment(card), textSegment('.')]);
   if (requirements.length === 0) {
     executeSpell(game.pendingAction);
   } else {
@@ -256,9 +256,15 @@ export function cancelPendingAction() {
   if (game.pendingAction.cancellable === false) {
     return;
   }
-  const cancelled = game.pendingAction.type === 'spell' ? `${game.pendingAction.card.name}` : 'action';
+  const { pendingAction } = game;
   game.pendingAction = null;
-  addLog(`${cancelled} cancelled.`);
+  if (pendingAction.type === 'spell') {
+    addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')]);
+  } else if (pendingAction.card) {
+    addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
+  } else {
+    addLog([textSegment('Action cancelled.')]);
+  }
   requestRender();
 }
 
@@ -267,7 +273,7 @@ export function executeSpell(pending) {
   const player = game.players[pending.controller];
   removeFromHand(player, pending.card.instanceId);
   spendMana(player, pending.card.cost ?? 0);
-  addLog(`${player.name} casts ${pending.card.name}.`);
+  addLog([playerSegment(player), textSegment(' casts '), cardSegment(pending.card), textSegment('.')]);
   resolveEffects(pending.effects, pending);
   player.graveyard.push(pending.card);
   game.pendingAction = null;
@@ -305,7 +311,7 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     }
     case 'draw': {
       drawCards(controller, effect.amount);
-      addLog(`${controller.name} draws ${effect.amount} card(s).`);
+      addLog([playerSegment(controller), textSegment(` draws ${effect.amount} card(s).`)]);
       break;
     }
     case 'damageAllEnemies': {
@@ -359,14 +365,14 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     case 'createToken': {
       const token = instantiateToken(effect.token, controller.color);
       controller.battlefield.push(token);
-      addLog(`${controller.name} creates ${token.name}.`);
+      addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
       break;
     }
     case 'createMultipleTokens': {
       for (let i = 0; i < effect.count; i += 1) {
         const token = instantiateToken(effect.token, controller.color);
         controller.battlefield.push(token);
-        addLog(`${controller.name} creates ${token.name}.`);
+        addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
       }
       break;
     }
@@ -385,7 +391,7 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
         game.combat.attackers.forEach((attacker) => bounceCreature(attacker.creature, attacker.controller));
         game.combat = null;
         game.blocking = null;
-        addLog('All attackers returned to hand.');
+        addLog([textSegment('All attackers returned to hand.')]);
       }
       break;
     }
@@ -409,12 +415,12 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     }
     case 'gainLife': {
       controller.life += effect.amount;
-      addLog(`${controller.name} gains ${effect.amount} life.`);
+      addLog([playerSegment(controller), textSegment(' gains '), healSegment(effect.amount), textSegment(' life.')]);
       break;
     }
     case 'preventCombatDamage': {
       game.preventCombatDamageFor = controllerIndex;
-      addLog(`${controller.name} prevents combat damage this turn.`);
+      addLog([playerSegment(controller), textSegment(' prevents combat damage this turn.')]);
       break;
     }
     case 'teamBuff': {
@@ -431,7 +437,7 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
       if (controller.graveyard.length) {
         const revived = controller.graveyard.pop();
         controller.hand.push(revived);
-        addLog(`${controller.name} returns ${revived.name} to hand.`);
+        addLog([playerSegment(controller), textSegment(' returns '), cardSegment(revived), textSegment(' to hand.')]);
       }
       break;
     }
@@ -613,7 +619,7 @@ export function handlePassive(card, controllerIndex, trigger) {
 
   if (effect.type === 'damage' && effect.target === 'any') {
     if (description) {
-      addLog(`${card.name} triggers: ${description}`);
+      addLog([cardSegment(card), textSegment(' triggers: '), textSegment(description)]);
     }
     const requirements = buildEffectRequirements([effect]);
     if (requirements.length) {
@@ -635,7 +641,7 @@ export function handlePassive(card, controllerIndex, trigger) {
   }
 
   if (description) {
-    addLog(`${card.name} triggers: ${description}`);
+    addLog([cardSegment(card), textSegment(' triggers: '), textSegment(description)]);
   }
 
   const requiresChoice = effectRequiresChoice(effect);
@@ -724,7 +730,7 @@ export function beginTurn(playerIndex) {
     }
     creature.damageMarked = 0;
   });
-  addLog(`${player.name} starts their turn with ${player.availableMana} mana.`);
+  addLog([playerSegment(player), textSegment(` starts their turn with ${player.availableMana} mana.`)]);
   game.phase = 'main1';
   game.preventCombatDamageFor = null;
 }
@@ -819,6 +825,7 @@ export function startGame(color) {
   state.game = game;
   state.screen = 'game';
   state.ui.logExpanded = false;
+  state.ui.previewCard = null;
   addLog(
     `Initiative roll — You: ${game.dice.player}, AI: ${game.dice.ai}. ${game.currentPlayer === 0 ? 'You go first.' : 'AI goes first.'}`,
     game,

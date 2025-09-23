@@ -16,6 +16,7 @@ export const initialState = {
   game: null,
   ui: {
     logExpanded: false,
+    previewCard: null,
   },
 };
 
@@ -46,6 +47,7 @@ export function resetEmailLogin() {
 export function resetToMenu() {
   state.game = null;
   state.screen = 'menu';
+  state.ui.previewCard = null;
   requestRender();
 }
 

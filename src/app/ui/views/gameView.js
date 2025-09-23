@@ -10,15 +10,19 @@ import {
 } from '../../game/core.js';
 import { getCreatureStats } from '../../game/creatures.js';
 
+function getCardColorClass(card) {
+  return `card-color-${card?.color ?? 'neutral'}`;
+}
+
 export function renderGame() {
   const { game } = state;
   if (!game) return '';
   const player = game.players[0];
   const opponent = game.players[1];
   const recentLogEntries = getRecentLogEntries(game);
-  const recentLog = recentLogEntries.map((entry) => `<li>${entry}</li>`).join('');
+  const recentLog = recentLogEntries.map((entry) => `<li>${renderLogEntry(entry)}</li>`).join('');
   const fullLog = getFullLog(game, recentLogEntries.length)
-    .map((entry) => `<li>${entry}</li>`)
+    .map((entry) => `<li>${renderLogEntry(entry)}</li>`)
     .join('');
   const pending = game.pendingAction;
   const blocking = game.blocking;
@@ -68,6 +72,7 @@ export function renderGame() {
           ${player.hand.map((card) => renderCard(card, true, game)).join('')}
         </div>
       </section>
+      ${renderCardPreviewModal(game)}
     </div>
   `;
 }
@@ -97,7 +102,7 @@ function renderPlayerBoard(player, game, isOpponent) {
 
 function renderCreature(creature, controllerIndex, game) {
   const stats = getCreatureStats(creature, controllerIndex, game);
-  const classes = ['card', 'creature-card'];
+  const classes = ['card', 'creature-card', getCardColorClass(creature)];
   if (creature.summoningSickness) classes.push('summoning');
   if (creature.frozenTurns) classes.push('frozen');
   const pending = game.pendingAction;
@@ -165,12 +170,15 @@ function renderCreature(creature, controllerIndex, game) {
 
 function renderCard(card, isHand, game) {
   const playable = isHand && canPlayCard(card, 0, game);
-  const classes = ['card', card.type === 'creature' ? 'creature-card' : 'spell-card'];
+  const classes = ['card', card.type === 'creature' ? 'creature-card' : 'spell-card', getCardColorClass(card)];
   if (playable) classes.push('playable');
   const pending = game?.pendingAction;
   if (pending && pending.card.instanceId === card.instanceId) {
     classes.push('selected');
   }
+  const baseAttack = card.baseAttack ?? card.attack ?? 0;
+  const baseToughness = card.baseToughness ?? card.toughness ?? 0;
+  const statsMarkup = card.type === 'creature' ? `<span class="card-stats">${baseAttack}/${baseToughness}</span>` : '';
   return `
     <div class="${classes.join(' ')}" data-card="${card.instanceId}" data-location="hand">
       <div class="card-header">
@@ -179,7 +187,7 @@ function renderCard(card, isHand, game) {
       </div>
       <div class="card-body">
         <p class="card-text">${card.text || ''}</p>
-        ${card.type === 'creature' ? `<span class="card-stats">${card.baseAttack}/${card.baseToughness}</span>` : ''}
+        ${statsMarkup}
       </div>
     </div>
   `;
@@ -235,4 +243,143 @@ function renderBlocking(blocking, game) {
       <button data-action="declare-blocks">Declare Blocks</button>
     </div>
   `;
+}
+
+function renderLogEntry(entry) {
+  if (!entry) return '';
+  if (typeof entry === 'string') {
+    return escapeHtml(entry);
+  }
+  const segments = Array.isArray(entry) ? entry : entry.segments || [];
+  if (!segments.length && entry.text) {
+    return escapeHtml(entry.text);
+  }
+  return segments.map((segment) => renderLogSegment(segment)).join('');
+}
+
+function renderLogSegment(segment) {
+  if (!segment) return '';
+  switch (segment.type) {
+    case 'player':
+      return renderPlayerSegment(segment);
+    case 'card':
+      return renderLogCard(segment);
+    case 'damage':
+      return `<span class="log-value damage">${escapeHtml(segment.amount ?? segment.value ?? '')}</span>`;
+    case 'heal':
+      return `<span class="log-value heal">${escapeHtml(segment.amount ?? segment.value ?? '')}</span>`;
+    case 'keyword':
+      return `<span class="log-keyword">${escapeHtml(segment.text)}</span>`;
+    case 'value': {
+      const variant = sanitizeClass(segment.variant);
+      const variantClass = variant ? ` ${variant}` : '';
+      return `<span class="log-value${variantClass}">${escapeHtml(segment.value)}</span>`;
+    }
+    case 'text':
+    default:
+      return `<span class="log-text">${escapeHtml(segment.text ?? segment)}</span>`;
+  }
+}
+
+function renderPlayerSegment(segment) {
+  const colorClass = sanitizeClass(segment.color || 'neutral');
+  return `<span class="log-player player-${colorClass}">${escapeHtml(segment.name)}</span>`;
+}
+
+function renderLogCard(segment) {
+  const colorClass = sanitizeClass(segment.color || 'neutral');
+  const typeClass = sanitizeClass(segment.cardType || 'card');
+  const classes = `log-card-ref card-color-${colorClass} card-type-${typeClass}`;
+  const instanceAttr = segment.instanceId ? ` data-card-ref="${escapeHtml(segment.instanceId)}"` : '';
+  const snapshotAttr = segment.snapshot
+    ? ` data-card-snapshot="${escapeHtml(encodeURIComponent(JSON.stringify(segment.snapshot)))}"`
+    : '';
+  return `<button type="button" class="${classes}"${instanceAttr}${snapshotAttr}>${escapeHtml(segment.name)}</button>`;
+}
+
+function renderCardPreviewModal(game) {
+  const preview = state.ui.previewCard;
+  if (!preview) return '';
+  const cardFromGame = preview.instanceId ? findCardByInstance(game, preview.instanceId) : null;
+  const resolvedCard = { ...(preview.snapshot || {}), ...(cardFromGame || {}) };
+  const hasCard = Boolean(resolvedCard.name);
+  const content = hasCard
+    ? renderPreviewCard(resolvedCard)
+    : '<p class="card-preview-missing">Card details unavailable.</p>';
+  return `
+    <div class="card-preview-overlay" data-preview-overlay="true">
+      <div class="card-preview-dialog" data-preview-dialog="true">
+        <button type="button" class="preview-close" data-action="close-preview" aria-label="Close preview">&times;</button>
+        ${content}
+      </div>
+    </div>
+  `;
+}
+
+function renderPreviewCard(card) {
+  const typeClass = card.type === 'creature' ? 'creature-card' : 'spell-card';
+  const colorClass = getCardColorClass(card);
+  const attack = card.baseAttack ?? card.attack ?? 0;
+  const toughness = card.baseToughness ?? card.toughness ?? 0;
+  const stats = card.type === 'creature'
+    ? `<div class="card-footer"><span class="stat attack">${escapeHtml(attack)}</span>/<span class="stat toughness">${escapeHtml(toughness)}</span></div>`
+    : '';
+  const bodyParts = [];
+  if (card.text) {
+    bodyParts.push(`<p class="card-text">${formatText(card.text)}</p>`);
+  }
+  if (card.passive?.description) {
+    bodyParts.push(`<p class="card-passive">${formatText(card.passive.description)}</p>`);
+  }
+  if (!bodyParts.length) {
+    bodyParts.push('<p class="card-text">No abilities.</p>');
+  }
+  return `
+    <article class="card preview-card ${typeClass} ${colorClass}">
+      <div class="card-header">
+        <span class="card-cost">${escapeHtml(card.cost ?? '')}</span>
+        <span class="card-name">${escapeHtml(card.name ?? 'Unknown Card')}</span>
+      </div>
+      <div class="card-body">
+        ${bodyParts.join('')}
+      </div>
+      ${stats}
+    </article>
+  `;
+}
+
+function findCardByInstance(game, instanceId) {
+  if (!game || !instanceId) return null;
+  const zones = ['hand', 'battlefield', 'graveyard', 'deck'];
+  for (const player of game.players) {
+    for (const zone of zones) {
+      const cards = player[zone] || [];
+      const found = cards.find((card) => card.instanceId === instanceId);
+      if (found) return found;
+    }
+  }
+  if (game.pendingAction?.card?.instanceId === instanceId) {
+    return game.pendingAction.card;
+  }
+  return null;
+}
+
+function escapeHtml(value) {
+  if (value == null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeClass(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+}
+
+function formatText(value) {
+  return escapeHtml(value).replace(/\n/g, '<br>');
 }

@@ -174,4 +174,41 @@ function bindGameEvents(root) {
       activateCreatureAbility(creatureId);
     });
   });
+
+  root.querySelectorAll('.log-card-ref').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const instanceId = btn.getAttribute('data-card-ref');
+      const snapshotAttr = btn.getAttribute('data-card-snapshot');
+      let snapshot = null;
+      if (snapshotAttr) {
+        try {
+          snapshot = JSON.parse(decodeURIComponent(snapshotAttr));
+        } catch (error) {
+          console.warn('Failed to parse card snapshot', error);
+        }
+      }
+      state.ui.previewCard = { instanceId: instanceId || null, snapshot };
+      requestRender();
+    });
+  });
+
+  const previewOverlay = root.querySelector('.card-preview-overlay');
+  if (previewOverlay) {
+    previewOverlay.addEventListener('click', (event) => {
+      if (event.target.closest('[data-preview-dialog]')) {
+        return;
+      }
+      state.ui.previewCard = null;
+      requestRender();
+    });
+  }
+
+  root.querySelectorAll('[data-action="close-preview"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      state.ui.previewCard = null;
+      requestRender();
+    });
+  });
 }

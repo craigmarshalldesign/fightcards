@@ -1,5 +1,5 @@
 import { state, requestRender } from '../state.js';
-import { addLog } from './log.js';
+import { addLog, cardSegment, damageSegment, playerSegment, textSegment } from './log.js';
 import { checkForDeadCreatures, dealDamageToCreature, dealDamageToPlayer, getCreatureStats, hasShimmer } from './creatures.js';
 
 let passiveHandler = () => {};
@@ -28,7 +28,7 @@ export function toggleAttacker(creature) {
     return;
   }
   if (creature.summoningSickness) {
-    addLog(`${creature.name} cannot attack this turn.`);
+    addLog([cardSegment(creature), textSegment(' cannot attack this turn.')]);
     requestRender();
     return;
   }
@@ -79,7 +79,7 @@ export function prepareBlocks() {
   const defending = game.currentPlayer === 0 ? 1 : 0;
   const defenders = game.players[defending].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
   if (defenders.length === 0) {
-    addLog(`${game.players[defending].name} has no blockers.`);
+    addLog([playerSegment(game.players[defending]), textSegment(' has no blockers.')]);
     resolveCombat();
     return;
   }
@@ -111,12 +111,12 @@ export function selectBlocker(creature) {
   if (!game.blocking) return;
   if (!game.combat || game.combat.stage !== 'blockers') return;
   if (creature.summoningSickness) {
-    addLog(`${creature.name} is summoning sick and cannot block.`);
+    addLog([cardSegment(creature), textSegment(' is summoning sick and cannot block.')]);
     requestRender();
     return;
   }
   game.blocking.selectedBlocker = creature;
-  addLog(`${creature.name} ready to block.`);
+  addLog([cardSegment(creature), textSegment(' is ready to block.')]);
   requestRender();
 }
 
@@ -137,14 +137,19 @@ export function assignBlockerToAttacker(attackerCreature) {
     return;
   }
   if (hasShimmer(attackerEntry.creature)) {
-    addLog(`${attackerEntry.creature.name} cannot be blocked this turn.`);
+    addLog([cardSegment(attackerEntry.creature), textSegment(' cannot be blocked this turn.')]);
     requestRender();
     return;
   }
   const alreadyAssigned = game.blocking.assignments[attackerCreature.instanceId];
   if (alreadyAssigned && alreadyAssigned.instanceId === blocker.instanceId) {
     delete game.blocking.assignments[attackerCreature.instanceId];
-    addLog(`${blocker.name} stops blocking ${attackerCreature.name}.`);
+    addLog([
+      cardSegment(blocker),
+      textSegment(' stops blocking '),
+      cardSegment(attackerCreature),
+      textSegment('.'),
+    ]);
     game.blocking.selectedBlocker = null;
     requestRender();
     return;
@@ -156,7 +161,7 @@ export function assignBlockerToAttacker(attackerCreature) {
   });
   game.blocking.assignments[attackerCreature.instanceId] = blocker;
   game.blocking.selectedBlocker = null;
-  addLog(`${blocker.name} blocks ${attackerCreature.name}.`);
+  addLog([cardSegment(blocker), textSegment(' blocks '), cardSegment(attackerCreature), textSegment('.')]);
   requestRender();
 }
 
@@ -168,14 +173,20 @@ export function resolveCombat() {
     return;
   }
   const defendingIndex = game.currentPlayer === 0 ? 1 : 0;
-  const defenderName = game.players[defendingIndex].name;
   game.combat.attackers.forEach((attacker) => {
     const attackerStats = getCreatureStats(attacker.creature, attacker.controller, game);
     const blocker = game.blocking.assignments[attacker.creature.instanceId];
     if (!blocker) {
       if (game.preventCombatDamageFor !== defendingIndex) {
         if (attackerStats.attack > 0) {
-          addLog(`${attacker.creature.name} hits ${defenderName} for ${attackerStats.attack} damage.`);
+          addLog([
+            cardSegment(attacker.creature),
+            textSegment(' hits '),
+            playerSegment(game.players[defendingIndex]),
+            textSegment(' for '),
+            damageSegment(attackerStats.attack),
+            textSegment(' damage.'),
+          ]);
         }
         dealDamageToPlayer(defendingIndex, attackerStats.attack);
       }
@@ -183,11 +194,25 @@ export function resolveCombat() {
     }
     const blockerStats = getCreatureStats(blocker, defendingIndex, game);
     if (attackerStats.attack > 0) {
-      addLog(`${attacker.creature.name} deals ${attackerStats.attack} damage to ${blocker.name}.`);
+      addLog([
+        cardSegment(attacker.creature),
+        textSegment(' deals '),
+        damageSegment(attackerStats.attack),
+        textSegment(' damage to '),
+        cardSegment(blocker),
+        textSegment('.'),
+      ]);
     }
     dealDamageToCreature(blocker, defendingIndex, attackerStats.attack);
     if (blockerStats.attack > 0) {
-      addLog(`${blocker.name} deals ${blockerStats.attack} damage to ${attacker.creature.name}.`);
+      addLog([
+        cardSegment(blocker),
+        textSegment(' deals '),
+        damageSegment(blockerStats.attack),
+        textSegment(' damage to '),
+        cardSegment(attacker.creature),
+        textSegment('.'),
+      ]);
     }
     dealDamageToCreature(attacker.creature, attacker.controller, blockerStats.attack);
   });
