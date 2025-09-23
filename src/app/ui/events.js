@@ -2,7 +2,6 @@ import { db, state, resetToMenu, requestRender } from '../state.js';
 import {
   startGame,
   advancePhase,
-  toggleCombatSelection,
   confirmAttackers,
   skipCombat,
   finalizeCurrentRequirement,
@@ -136,13 +135,6 @@ function bindGameEvents(root) {
   const declareBtn = root.querySelector('[data-action="declare-attackers"]');
   if (declareBtn) {
     declareBtn.addEventListener('click', () => {
-      toggleCombatSelection();
-    });
-  }
-
-  const resolveBtn = root.querySelector('[data-action="resolve-attacks"]');
-  if (resolveBtn) {
-    resolveBtn.addEventListener('click', () => {
       confirmAttackers();
     });
   }
@@ -168,7 +160,7 @@ function bindGameEvents(root) {
     });
   }
 
-  const resolveBlocksBtn = root.querySelector('[data-action="resolve-blocks"]');
+  const resolveBlocksBtn = root.querySelector('[data-action="declare-blocks"]');
   if (resolveBlocksBtn) {
     resolveBlocksBtn.addEventListener('click', () => {
       resolveCombat();

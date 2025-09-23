@@ -1,4 +1,4 @@
-import { state } from '../state.js';
+import { state, requestRender } from '../state.js';
 import { addLog } from './log.js';
 import { resolveCombat, skipCombat, triggerAttackPassive } from './combat.js';
 import { getCreatureStats } from './creatures.js';
@@ -16,6 +16,8 @@ let helpers = {
   canPlayCard: () => false,
 };
 
+let aiActionTimer = null;
+
 export function registerAIHelpers(api) {
   helpers = { ...helpers, ...api };
 }
@@ -23,20 +25,40 @@ export function registerAIHelpers(api) {
 export function runAI() {
   const game = state.game;
   if (!game || game.currentPlayer !== 1 || game.winner != null) return;
+  if (game.blocking?.awaitingDefender && game.currentPlayer === 1) return;
+  if (aiActionTimer) {
+    clearTimeout(aiActionTimer);
+  }
+  aiActionTimer = setTimeout(() => {
+    aiActionTimer = null;
+    processAI();
+  }, 1000);
+}
+
+function processAI() {
+  const game = state.game;
+  if (!game || game.currentPlayer !== 1 || game.winner != null) return;
+  if (game.blocking?.awaitingDefender) return;
   const aiPlayer = game.players[1];
   if (game.phase === 'main1' || game.phase === 'main2') {
     const played = aiPlayTurnStep(aiPlayer);
     if (!played) {
       helpers.advancePhase();
     } else {
-      setTimeout(() => runAI(), 1000);
+      runAI();
     }
     return;
   }
   if (game.phase === 'combat') {
-    aiDeclareAttacks();
-    resolveCombat();
-    setTimeout(() => runAI(), 1000);
+    if (!game.combat || game.combat.stage === 'choose') {
+      aiDeclareAttacks();
+      if (game.blocking?.awaitingDefender && game.currentPlayer === 1) {
+        return;
+      }
+      if (!game.combat) {
+        runAI();
+      }
+    }
   }
 }
 
@@ -134,15 +156,33 @@ function pickTargetsForAI(requirement, controllerIndex) {
 
 function aiDeclareAttacks() {
   const game = state.game;
+  if (!game.combat) {
+    return;
+  }
   const attackers = game.players[1].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
   if (attackers.length === 0) {
+    addLog('No attackers declared.');
     skipCombat();
     return;
   }
-  game.combat = { attackers: attackers.map((creature) => ({ creature, controller: 1 })), stage: 'declare' };
+  game.combat.attackers = attackers.map((creature) => ({ creature, controller: 1 }));
+  game.combat.stage = 'blockers';
   attackers.forEach((creature) => {
     helpers.addLog(`${game.players[1].name} sends ${creature.name} into battle.`);
     triggerAttackPassive(creature, 1);
   });
-  game.blocking = { attackers: [...game.combat.attackers], assignments: {}, selectedBlocker: null };
+  game.blocking = {
+    attackers: [...game.combat.attackers],
+    assignments: {},
+    selectedBlocker: null,
+    awaitingDefender: false,
+  };
+  const blockers = game.players[0].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
+  if (blockers.length === 0) {
+    addLog(`${game.players[0].name} has no blockers.`);
+    resolveCombat();
+    return;
+  }
+  game.blocking.awaitingDefender = true;
+  requestRender();
 }

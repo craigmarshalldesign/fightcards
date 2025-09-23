@@ -12,9 +12,9 @@ export function addLog(message, gameOverride) {
 }
 
 export function getRecentLogEntries(game, count = 3) {
-  return game.log.slice(-count);
+  return game.log.slice(-count).reverse();
 }
 
 export function getFullLog(game) {
-  return [...game.log];
+  return [...game.log].reverse();
 }

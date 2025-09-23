@@ -1,13 +1,6 @@
-import { state } from '../state.js';
+import { state, requestRender } from '../state.js';
 import { addLog } from './log.js';
-import {
-  checkForDeadCreatures,
-  dealDamageToCreature,
-  dealDamageToPlayer,
-  destroyCreature,
-  getCreatureStats,
-} from './creatures.js';
-import { requestRender } from '../state.js';
+import { checkForDeadCreatures, dealDamageToCreature, dealDamageToPlayer, getCreatureStats } from './creatures.js';
 
 let passiveHandler = () => {};
 
@@ -21,23 +14,19 @@ export function triggerAttackPassive(creature, controllerIndex) {
 
 export function startCombatStage() {
   const game = state.game;
-  game.combat = { attackers: [], stage: 'declare' };
-  game.blocking = { attackers: [], assignments: {}, selectedBlocker: null };
+  game.combat = { attackers: [], stage: 'choose' };
+  game.blocking = null;
   addLog('Combat begins.');
-}
-
-export function toggleCombatSelection() {
-  const game = state.game;
-  if (!game.combat) {
-    startCombatStage();
-  }
-  game.combat.stage = 'choose';
-  requestRender();
 }
 
 export function toggleAttacker(creature) {
   const game = state.game;
   if (!game.combat) return;
+  if (game.combat.stage !== 'choose') {
+    addLog('Attackers have already been declared.');
+    requestRender();
+    return;
+  }
   if (creature.summoningSickness) {
     addLog(`${creature.name} cannot attack this turn.`);
     requestRender();
@@ -60,7 +49,13 @@ export function confirmAttackers() {
     skipCombat();
     return;
   }
+  if (game.combat.stage !== 'choose') {
+    addLog('Attackers already declared.');
+    requestRender();
+    return;
+  }
   addLog(`Attacking with ${game.combat.attackers.length} creature(s).`);
+  game.combat.stage = 'blockers';
   prepareBlocks();
 }
 
@@ -79,19 +74,27 @@ export function prepareBlocks() {
     attackers: [...game.combat.attackers],
     assignments: {},
     selectedBlocker: null,
+    awaitingDefender: false,
   };
   const defending = game.currentPlayer === 0 ? 1 : 0;
+  const defenders = game.players[defending].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
+  if (defenders.length === 0) {
+    addLog(`${game.players[defending].name} has no blockers.`);
+    resolveCombat();
+    return;
+  }
   if (game.players[defending].isAI) {
     aiAssignBlocks();
     resolveCombat();
   } else {
+    game.blocking.awaitingDefender = true;
     requestRender();
   }
 }
 
 export function aiAssignBlocks() {
   const game = state.game;
-  const defenders = game.players[1].battlefield.filter((c) => c.type === 'creature');
+  const defenders = game.players[1].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
   game.blocking.attackers.forEach((attacker) => {
     const blocker = defenders.shift();
     if (blocker) {
@@ -103,6 +106,7 @@ export function aiAssignBlocks() {
 export function selectBlocker(creature) {
   const game = state.game;
   if (!game.blocking) return;
+  if (!game.combat || game.combat.stage !== 'blockers') return;
   if (creature.summoningSickness) {
     addLog(`${creature.name} is summoning sick and cannot block.`);
     requestRender();
@@ -116,12 +120,32 @@ export function selectBlocker(creature) {
 export function assignBlockerToAttacker(attackerCreature) {
   const game = state.game;
   if (!game.blocking) return;
+  if (!game.combat || game.combat.stage !== 'blockers') return;
   const blocker = game.blocking.selectedBlocker;
   if (!blocker) {
     addLog('Select a blocker first.');
     requestRender();
     return;
   }
+  const attackerEntry = game.blocking.attackers.find((attacker) => attacker.creature.instanceId === attackerCreature.instanceId);
+  if (!attackerEntry) {
+    addLog('Invalid attacker.');
+    requestRender();
+    return;
+  }
+  const alreadyAssigned = game.blocking.assignments[attackerCreature.instanceId];
+  if (alreadyAssigned && alreadyAssigned.instanceId === blocker.instanceId) {
+    delete game.blocking.assignments[attackerCreature.instanceId];
+    addLog(`${blocker.name} stops blocking ${attackerCreature.name}.`);
+    game.blocking.selectedBlocker = null;
+    requestRender();
+    return;
+  }
+  Object.keys(game.blocking.assignments).forEach((key) => {
+    if (game.blocking.assignments[key].instanceId === blocker.instanceId) {
+      delete game.blocking.assignments[key];
+    }
+  });
   game.blocking.assignments[attackerCreature.instanceId] = blocker;
   game.blocking.selectedBlocker = null;
   addLog(`${blocker.name} blocks ${attackerCreature.name}.`);
@@ -136,26 +160,28 @@ export function resolveCombat() {
     return;
   }
   const defendingIndex = game.currentPlayer === 0 ? 1 : 0;
+  const defenderName = game.players[defendingIndex].name;
   game.combat.attackers.forEach((attacker) => {
     const attackerStats = getCreatureStats(attacker.creature, attacker.controller, game);
     const blocker = game.blocking.assignments[attacker.creature.instanceId];
     if (!blocker) {
       if (game.preventCombatDamageFor !== defendingIndex) {
+        if (attackerStats.attack > 0) {
+          addLog(`${attacker.creature.name} hits ${defenderName} for ${attackerStats.attack} damage.`);
+        }
         dealDamageToPlayer(defendingIndex, attackerStats.attack);
       }
       return;
     }
     const blockerStats = getCreatureStats(blocker, defendingIndex, game);
-    if (attackerStats.attack >= blockerStats.toughness) {
-      destroyCreature(blocker, defendingIndex);
-    } else {
-      blocker.damageMarked = (blocker.damageMarked || 0) + attackerStats.attack;
+    if (attackerStats.attack > 0) {
+      addLog(`${attacker.creature.name} deals ${attackerStats.attack} damage to ${blocker.name}.`);
     }
-    if (blockerStats.attack >= attackerStats.toughness) {
-      destroyCreature(attacker.creature, attacker.controller);
-    } else {
-      attacker.creature.damageMarked = (attacker.creature.damageMarked || 0) + blockerStats.attack;
+    dealDamageToCreature(blocker, defendingIndex, attackerStats.attack);
+    if (blockerStats.attack > 0) {
+      addLog(`${blocker.name} deals ${blockerStats.attack} damage to ${attacker.creature.name}.`);
     }
+    dealDamageToCreature(attacker.creature, attacker.controller, blockerStats.attack);
   });
   checkForDeadCreatures();
   game.combat = null;
