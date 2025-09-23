@@ -594,10 +594,13 @@ function startGame(color) {
     dice: rollForInitiative(),
   };
   game.currentPlayer = game.dice.winner;
+  state.game = game;
+  state.screen = 'game';
   addLog(
     `Initiative roll — You: ${game.dice.player}, AI: ${game.dice.ai}. ${game.currentPlayer === 0 ? 'You go first.' : 'AI goes first.'}`,
     game,
   );
+  addLog(`AI Opponent will wield the ${COLORS[aiColor].name} deck.`, game);
   drawCards(player, 5);
   drawCards(ai, 5);
   if (game.currentPlayer === 0) {
@@ -606,8 +609,6 @@ function startGame(color) {
     beginTurn(game.currentPlayer);
     setTimeout(() => runAI(), 700);
   }
-  state.game = game;
-  state.screen = 'game';
   render();
 }
 
