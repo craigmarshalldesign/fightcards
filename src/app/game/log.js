@@ -15,6 +15,7 @@ export function getRecentLogEntries(game, count = 3) {
   return game.log.slice(-count).reverse();
 }
 
-export function getFullLog(game) {
-  return [...game.log].reverse();
+export function getFullLog(game, recentCount = 3) {
+  const skip = Math.min(recentCount, game.log.length);
+  return game.log.slice(0, game.log.length - skip).reverse();
 }

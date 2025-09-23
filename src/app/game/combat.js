@@ -1,6 +1,6 @@
 import { state, requestRender } from '../state.js';
 import { addLog } from './log.js';
-import { checkForDeadCreatures, dealDamageToCreature, dealDamageToPlayer, getCreatureStats } from './creatures.js';
+import { checkForDeadCreatures, dealDamageToCreature, dealDamageToPlayer, getCreatureStats, hasShimmer } from './creatures.js';
 
 let passiveHandler = () => {};
 
@@ -96,6 +96,9 @@ export function aiAssignBlocks() {
   const game = state.game;
   const defenders = game.players[1].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
   game.blocking.attackers.forEach((attacker) => {
+    if (hasShimmer(attacker.creature)) {
+      return;
+    }
     const blocker = defenders.shift();
     if (blocker) {
       game.blocking.assignments[attacker.creature.instanceId] = blocker;
@@ -130,6 +133,11 @@ export function assignBlockerToAttacker(attackerCreature) {
   const attackerEntry = game.blocking.attackers.find((attacker) => attacker.creature.instanceId === attackerCreature.instanceId);
   if (!attackerEntry) {
     addLog('Invalid attacker.');
+    requestRender();
+    return;
+  }
+  if (hasShimmer(attackerEntry.creature)) {
+    addLog(`${attackerEntry.creature.name} cannot be blocked this turn.`);
     requestRender();
     return;
   }

@@ -15,8 +15,11 @@ export function renderGame() {
   if (!game) return '';
   const player = game.players[0];
   const opponent = game.players[1];
-  const recentLog = getRecentLogEntries(game).map((entry) => `<li>${entry}</li>`).join('');
-  const fullLog = getFullLog(game).map((entry) => `<li>${entry}</li>`).join('');
+  const recentLogEntries = getRecentLogEntries(game);
+  const recentLog = recentLogEntries.map((entry) => `<li>${entry}</li>`).join('');
+  const fullLog = getFullLog(game, recentLogEntries.length)
+    .map((entry) => `<li>${entry}</li>`)
+    .join('');
   const pending = game.pendingAction;
   const blocking = game.blocking;
   const shouldShowBlocking = Boolean(blocking && game.currentPlayer === 1 && blocking.awaitingDefender);
@@ -207,7 +210,7 @@ function renderPendingAction(pending) {
     <div class="pending-overlay">
       <p>${describeRequirement(requirement)}</p>
       ${requirement.count > 1 ? `<button data-action="confirm-targets">Confirm targets (${pending.selectedTargets.length}/${requirement.count})</button>` : ''}
-      <button data-action="cancel-action">Cancel</button>
+      ${pending.cancellable === false ? '' : '<button data-action="cancel-action">Cancel</button>'}
     </div>
   `;
 }

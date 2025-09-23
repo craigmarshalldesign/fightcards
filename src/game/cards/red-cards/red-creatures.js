@@ -36,7 +36,7 @@ export const redCreatures = [
     activated: {
       type: 'active',
       cost: 1,
-      oncePerTurn: false,
+      oncePerTurn: true,
       description: 'Spend 1 mana: Target creature gains +1 attack this turn.',
       effect: { type: 'temporaryBuff', target: 'friendly-creature', attack: 1, toughness: 0 },
     },
