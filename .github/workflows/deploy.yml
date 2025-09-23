@@ -17,6 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: github-pages
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,6 +30,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Debug Environment
+        run: echo "VITE_INSTANTDB_ID=$VITE_INSTANTDB_ID"
+        env:
+          VITE_INSTANTDB_ID: ${{ secrets.VITE_INSTANTDB_ID }}
 
       - name: Build project
         run: npm run build
