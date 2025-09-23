@@ -1,7 +1,7 @@
 import './style.css';
 import * as THREE from 'three';
 import { init } from '@instantdb/core';
-import { buildDeck, COLORS, createCardInstance } from './game/cards.js';
+import { buildDeck, COLORS, createCardInstance } from './game/cards/index.js';
 
 const APP_ID = import.meta.env.VITE_INSTANTDB_ID;
 const db = init({ appId: APP_ID });
@@ -700,6 +700,36 @@ function endTurn() {
   }
 }
 
+function advancePhase() {
+  const game = state.game;
+  if (!game) return;
+  if (game.pendingAction) {
+    addLog('Resolve the pending action first.');
+    render();
+    return;
+  }
+  if (game.phase === 'main1') {
+    game.phase = 'combat';
+    startCombatStage();
+    render();
+  } else if (game.phase === 'combat') {
+    skipCombat();
+    if (game.currentPlayer === 1) {
+      setTimeout(() => runAI(), 500);
+    }
+    return;
+  } else if (game.phase === 'main2') {
+    endTurn();
+    return;
+  } else {
+    game.phase = 'main2';
+    render();
+  }
+  if (game.currentPlayer === 1) {
+    setTimeout(() => runAI(), 500);
+  }
+}
+
 function canPlayCard(card, playerIndex, game) {
   if (!game) return false;
   const player = game.players[playerIndex];
@@ -759,23 +789,55 @@ function computeRequirements(card) {
   if (!card.effects) return [];
   const reqs = [];
   card.effects.forEach((effect, idx) => {
-    if (effect.type === 'damage' && ['enemy-creature', 'friendly-creature', 'any', 'any-creature'].includes(effect.target)) {
-      reqs.push({ effectIndex: idx, effect, count: 1, target: effect.target });
-    }
-    if (effect.type === 'buff' && effect.target === 'friendly-creature') {
-      reqs.push({ effectIndex: idx, effect, count: 1, target: 'friendly-creature' });
-    }
-    if (effect.type === 'temporaryBuff' && effect.target === 'friendly-creature') {
-      reqs.push({ effectIndex: idx, effect, count: 1, target: 'friendly-creature' });
-    }
-    if (effect.type === 'grantHaste' && effect.target === 'two-friendly') {
-      reqs.push({ effectIndex: idx, effect, count: 2, target: 'friendly-creature', allowLess: true });
-    }
-    if (effect.type === 'multiBuff') {
-      reqs.push({ effectIndex: idx, effect, count: effect.count, target: 'friendly-creature', allowLess: true });
-    }
-    if (effect.type === 'heal') {
-      reqs.push({ effectIndex: idx, effect, count: 1, target: 'friendly-creature' });
+    const requirementBase = { effectIndex: idx, effect };
+    switch (effect.type) {
+      case 'damage': {
+        if (['enemy-creature', 'friendly-creature', 'any', 'any-creature', 'creature'].includes(effect.target)) {
+          reqs.push({ ...requirementBase, count: 1, target: effect.target === 'creature' ? 'creature' : effect.target });
+        }
+        break;
+      }
+      case 'buff': {
+        if (effect.target === 'friendly-creature' || effect.target === 'any-creature') {
+          reqs.push({ ...requirementBase, count: 1, target: effect.target });
+        }
+        break;
+      }
+      case 'temporaryBuff': {
+        if (effect.target === 'friendly-creature' || effect.target === 'any-creature') {
+          reqs.push({ ...requirementBase, count: 1, target: effect.target });
+        }
+        break;
+      }
+      case 'grantHaste': {
+        if (effect.target === 'two-friendly') {
+          reqs.push({ ...requirementBase, count: 2, target: 'friendly-creature', allowLess: true });
+        }
+        break;
+      }
+      case 'multiBuff': {
+        reqs.push({ ...requirementBase, count: effect.count, target: 'friendly-creature', allowLess: true });
+        break;
+      }
+      case 'heal': {
+        reqs.push({ ...requirementBase, count: 1, target: 'friendly-creature' });
+        break;
+      }
+      case 'freeze': {
+        if (effect.target === 'enemy-creature') {
+          reqs.push({ ...requirementBase, count: 1, target: 'enemy-creature' });
+        }
+        break;
+      }
+      case 'bounce': {
+        if (['creature', 'friendly-creature', 'enemy-creature', 'any-creature'].includes(effect.target)) {
+          const target = effect.target === 'creature' ? 'creature' : effect.target;
+          reqs.push({ ...requirementBase, count: 1, target });
+        }
+        break;
+      }
+      default:
+        break;
     }
   });
   return reqs;
@@ -853,7 +915,7 @@ function isTargetValid(creature, controller, requirement, pending) {
   if (requirement.target === 'enemy-creature') {
     return controller !== pending.controller;
   }
-  if (requirement.target === 'any-creature' || requirement.target === 'any') {
+  if (requirement.target === 'any-creature' || requirement.target === 'any' || requirement.target === 'creature') {
     return true;
   }
   return false;
@@ -873,6 +935,7 @@ function describeRequirement(requirement) {
       return 'Select an enemy creature.';
     case 'any-creature':
     case 'any':
+    case 'creature':
       return 'Select a creature.';
     default:
       return 'Choose targets.';
@@ -1344,47 +1407,94 @@ function runAI() {
 
 function aiPlayTurnStep(aiPlayer) {
   const game = state.game;
-  const playable = aiPlayer.hand.find((card) => canPlayCard(card, 1, game));
-  if (!playable) return false;
-  if (playable.type === 'creature') {
-    playCreature(1, playable);
-  } else {
-    const requirements = computeRequirements(playable);
-    const pending = {
-      controller: 1,
-      card: playable,
-      requirements,
-      requirementIndex: 0,
-      selectedTargets: [],
-      chosenTargets: {},
-    };
+  const playableCards = aiPlayer.hand.filter((card) => canPlayCard(card, 1, game));
+  for (const card of playableCards) {
+    if (card.type === 'creature') {
+      playCreature(1, card);
+      render();
+      return true;
+    }
+    const requirements = computeRequirements(card);
+    const chosenTargets = {};
+    let requirementsSatisfied = true;
     requirements.forEach((req) => {
       const targets = pickTargetsForAI(req, 1);
-      pending.chosenTargets[req.effectIndex] = targets;
+      const requiredCount = req.count ?? 1;
+      const minimumRequired = req.allowLess ? Math.min(requiredCount, 1) : requiredCount;
+      if (targets.length < minimumRequired) {
+        requirementsSatisfied = false;
+      }
+      chosenTargets[req.effectIndex] = targets;
     });
-    removeFromHand(aiPlayer, playable.instanceId);
-    spendMana(aiPlayer, playable.cost ?? 0);
-    addLog(`${aiPlayer.name} casts ${playable.name}.`);
-    resolveEffects(playable.effects || [], pending);
-    aiPlayer.graveyard.push(playable);
+    if (!requirementsSatisfied) {
+      continue;
+    }
+    removeFromHand(aiPlayer, card.instanceId);
+    spendMana(aiPlayer, card.cost ?? 0);
+    addLog(`${aiPlayer.name} casts ${card.name}.`);
+    const pending = {
+      controller: 1,
+      card,
+      requirements,
+      requirementIndex: requirements.length,
+      selectedTargets: [],
+      chosenTargets,
+    };
+    resolveEffects(card.effects || [], pending);
+    aiPlayer.graveyard.push(card);
+    render();
+    return true;
   }
-  render();
-  return true;
+  return false;
 }
 
 function pickTargetsForAI(requirement, controllerIndex) {
   const game = state.game;
-  if (requirement.target === 'friendly-creature') {
-    return game.players[controllerIndex].battlefield
+  const controller = game.players[controllerIndex];
+  const opponentIndex = controllerIndex === 0 ? 1 : 0;
+  const opponent = game.players[opponentIndex];
+  const desired = requirement.count ?? 1;
+
+  const selectCreatures = (creatures, ownerIndex, count) =>
+    creatures
       .filter((c) => c.type === 'creature')
-      .slice(0, requirement.count)
-      .map((creature) => ({ creature, controller: controllerIndex }));
+      .sort(
+        (a, b) =>
+          getCreatureStats(b, ownerIndex, game).attack -
+          getCreatureStats(a, ownerIndex, game).attack,
+      )
+      .slice(0, count)
+      .map((creature) => ({ creature, controller: ownerIndex }));
+
+  if (requirement.target === 'friendly-creature') {
+    return selectCreatures(controller.battlefield, controllerIndex, desired);
   }
   if (requirement.target === 'enemy-creature') {
-    return game.players[controllerIndex === 0 ? 1 : 0].battlefield
-      .filter((c) => c.type === 'creature')
-      .slice(0, requirement.count)
-      .map((creature) => ({ creature, controller: controllerIndex === 0 ? 1 : 0 }));
+    return selectCreatures(opponent.battlefield, opponentIndex, desired);
+  }
+  if (requirement.target === 'any-creature') {
+    if (['temporaryBuff', 'buff', 'heal', 'grantHaste', 'multiBuff'].includes(requirement.effect.type)) {
+      return selectCreatures(controller.battlefield, controllerIndex, desired);
+    }
+    const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired);
+    if (enemySelection.length) {
+      return enemySelection;
+    }
+    return selectCreatures(controller.battlefield, controllerIndex, desired);
+  }
+  if (requirement.target === 'creature') {
+    const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired);
+    if (enemySelection.length) {
+      return enemySelection;
+    }
+    return selectCreatures(controller.battlefield, controllerIndex, desired);
+  }
+  if (requirement.target === 'any') {
+    const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired);
+    if (enemySelection.length) {
+      return enemySelection;
+    }
+    return [];
   }
   return [];
 }
