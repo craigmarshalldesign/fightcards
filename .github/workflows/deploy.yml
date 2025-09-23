@@ -31,6 +31,8 @@ jobs:
         run: npm ci
 
       - name: Build project
+        env:
+          VITE_INSTANTDB_ID: ${{ vars.VITE_INSTANTDB_ID }}
         run: npm run build
 
       - name: Upload Pages artifact
