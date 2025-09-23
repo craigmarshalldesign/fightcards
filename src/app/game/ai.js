@@ -1,5 +1,5 @@
 import { state, requestRender } from '../state.js';
-import { addLog } from './log.js';
+import { addLog, cardSegment, playerSegment, textSegment } from './log.js';
 import { resolveCombat, skipCombat, triggerAttackPassive } from './combat.js';
 import { getCreatureStats } from './creatures.js';
 
@@ -87,7 +87,7 @@ function aiPlayTurnStep(aiPlayer) {
     }
     helpers.removeFromHand(aiPlayer, card.instanceId);
     helpers.spendMana(aiPlayer, card.cost ?? 0);
-    addLog(`${aiPlayer.name} casts ${card.name}.`);
+    addLog([playerSegment(aiPlayer), textSegment(' casts '), cardSegment(card), textSegment('.')]);
     const pending = {
       controller: 1,
       card,
@@ -168,7 +168,12 @@ function aiDeclareAttacks() {
   game.combat.attackers = attackers.map((creature) => ({ creature, controller: 1 }));
   game.combat.stage = 'blockers';
   attackers.forEach((creature) => {
-    helpers.addLog(`${game.players[1].name} sends ${creature.name} into battle.`);
+    helpers.addLog([
+      playerSegment(game.players[1]),
+      textSegment(' sends '),
+      cardSegment(creature),
+      textSegment(' into battle.'),
+    ]);
     triggerAttackPassive(creature, 1);
   });
   game.blocking = {
@@ -179,7 +184,7 @@ function aiDeclareAttacks() {
   };
   const blockers = game.players[0].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
   if (blockers.length === 0) {
-    addLog(`${game.players[0].name} has no blockers.`);
+    addLog([playerSegment(game.players[0]), textSegment(' has no blockers.')]);
     resolveCombat();
     return;
   }

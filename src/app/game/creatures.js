@@ -1,6 +1,6 @@
 import { createCardInstance } from '../../game/cards/index.js';
 import { state } from '../state.js';
-import { addLog } from './log.js';
+import { addLog, cardSegment, damageSegment, playerSegment, textSegment } from './log.js';
 
 let checkForWinnerHook = () => {};
 
@@ -48,7 +48,7 @@ export function bounceCreature(creature, controllerIndex) {
   removeFromBattlefield(player, creature.instanceId);
   creature.summoningSickness = !creature.abilities?.haste;
   player.hand.push(creature);
-  addLog(`${creature.name} returns to ${player.name}'s hand.`);
+  addLog([cardSegment(creature), textSegment(' returns to '), playerSegment(player), textSegment("'s hand.")]);
 }
 
 export function bounceStrongestCreatures(controllerIndex, amount) {
@@ -63,7 +63,7 @@ export function bounceStrongestCreatures(controllerIndex, amount) {
 export function freezeCreature(creature) {
   creature.frozenTurns = Math.max(1, creature.frozenTurns || 0);
   creature.summoningSickness = true;
-  addLog(`${creature.name} is frozen.`);
+  addLog([cardSegment(creature), textSegment(' is frozen.')]);
 }
 
 export function distributeSplashDamage(opponentIndex, amount) {
@@ -117,9 +117,14 @@ export function dealDamageToCreature(creature, controllerIndex, amount) {
   creature.damageMarked = newDamage;
   const remaining = Math.max(stats.toughness - newDamage, 0);
   if (remaining > 0) {
-    addLog(`${creature.name} takes ${amount} damage (${remaining} toughness remaining).`);
+    addLog([
+      cardSegment(creature),
+      textSegment(' takes '),
+      damageSegment(amount),
+      textSegment(` damage (${remaining} toughness remaining).`),
+    ]);
   } else {
-    addLog(`${creature.name} takes ${amount} damage.`);
+    addLog([cardSegment(creature), textSegment(' takes '), damageSegment(amount), textSegment(' damage.')]);
   }
   if (creature.damageMarked >= stats.toughness) {
     destroyCreature(creature, controllerIndex);
@@ -131,13 +136,18 @@ export function destroyCreature(creature, controllerIndex) {
   removeFromBattlefield(player, creature.instanceId);
   creature.damageMarked = 0;
   player.graveyard.push(creature);
-  addLog(`${creature.name} is defeated.`);
+  addLog([cardSegment(creature), textSegment(' dies.')]);
 }
 
 export function dealDamageToPlayer(index, amount) {
   const player = state.game.players[index];
   player.life -= amount;
-  addLog(`${player.name} takes ${amount} damage (life ${player.life}).`);
+  addLog([
+    playerSegment(player),
+    textSegment(' takes '),
+    damageSegment(amount),
+    textSegment(` damage (life ${player.life}).`),
+  ]);
   checkForWinnerHook();
 }
 
