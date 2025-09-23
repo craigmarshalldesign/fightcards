@@ -37,7 +37,7 @@ jobs:
           VITE_INSTANTDB_ID: ${{ secrets.VITE_INSTANTDB_ID }}
 
       - name: Build project
-        run: npm run build -- --env VITE_INSTANTDB_ID=${{ secrets.VITE_INSTANTDB_ID }}
+        run: npm run build
         env:
           VITE_INSTANTDB_ID: ${{ secrets.VITE_INSTANTDB_ID }}
 
