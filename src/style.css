@@ -5,6 +5,11 @@
   line-height: 1.4;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -271,6 +276,21 @@ input {
   box-shadow: 0 0 14px rgba(249, 115, 22, 0.4);
 }
 
+.card.attacker-card.attacker-blocked {
+  border-color: #fb923c;
+  box-shadow: 0 0 16px rgba(251, 146, 60, 0.45);
+}
+
+.card.blocker-selected {
+  border-color: #facc15;
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.45);
+}
+
+.card.blocking-creature {
+  border-color: #38bdf8;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+}
+
 .card.blocker-selectable {
   border-color: #38bdf8;
 }
@@ -309,6 +329,24 @@ input {
   font-weight: 700;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.card-footer .stat {
+  font-variant-numeric: tabular-nums;
+}
+
+.card-footer .stat.toughness.damaged {
+  color: #f87171;
+}
+
+.card-footer .damage-chip {
+  font-size: 0.7rem;
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.18);
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.4rem;
 }
 
 .ability {
@@ -381,6 +419,18 @@ input {
   font-size: 0.8rem;
 }
 
+.blocking-overlay ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.blocking-overlay .unblocked {
+  color: #f87171;
+}
+
 .pending-overlay button {
   margin-top: 0.2rem;
 }
@@ -398,16 +448,35 @@ input {
 
 button:disabled,
 button.disabled {
+  opacity: 0.4;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
-@media (max-width: 540px) {
+@media (max-width: 600px) {
+  body {
+    align-items: flex-start;
+    padding: 0;
+  }
+
   #app {
     width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
     border-radius: 0;
+    max-width: none;
     box-shadow: none;
   }
+
   .ui-layer {
-    padding: 0.8rem;
+    padding: 0.85rem;
+  }
+
+  .log-panel,
+  .battlefield-area,
+  .status-bar,
+  .hand-area {
+    border-radius: 14px;
   }
 }

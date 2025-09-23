@@ -93,8 +93,16 @@ export function removeFromBattlefield(player, instanceId) {
 }
 
 export function dealDamageToCreature(creature, controllerIndex, amount) {
+  if (amount <= 0) return;
   const stats = getCreatureStats(creature, controllerIndex, state.game);
-  creature.damageMarked = (creature.damageMarked || 0) + amount;
+  const newDamage = (creature.damageMarked || 0) + amount;
+  creature.damageMarked = newDamage;
+  const remaining = Math.max(stats.toughness - newDamage, 0);
+  if (remaining > 0) {
+    addLog(`${creature.name} takes ${amount} damage (${remaining} toughness remaining).`);
+  } else {
+    addLog(`${creature.name} takes ${amount} damage.`);
+  }
   if (creature.damageMarked >= stats.toughness) {
     destroyCreature(creature, controllerIndex);
   }

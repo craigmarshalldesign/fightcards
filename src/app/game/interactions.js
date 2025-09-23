@@ -37,11 +37,11 @@ export function handleCreatureClick(cardId, controller) {
     handleTargetSelection(creature, controller);
     return;
   }
-  if (game.phase === 'combat' && game.currentPlayer === 0 && controller === 0) {
+  if (game.phase === 'combat' && game.currentPlayer === 0 && controller === 0 && game.combat?.stage === 'choose') {
     toggleAttacker(creature);
     return;
   }
-  if (game.blocking && game.currentPlayer === 1) {
+  if (game.blocking && game.currentPlayer === 1 && game.combat?.stage === 'blockers') {
     if (controller === 0) {
       if (game.blocking.selectedBlocker && game.blocking.selectedBlocker.instanceId === creature.instanceId) {
         game.blocking.selectedBlocker = null;

@@ -19,14 +19,13 @@ import {
 } from './creatures.js';
 import {
   startCombatStage,
-  toggleCombatSelection,
   toggleAttacker,
   confirmAttackers,
   skipCombat,
   prepareBlocks,
   assignBlockerToAttacker,
   selectBlocker,
-  resolveCombat,
+  resolveCombat as resolveCombatPhase,
   describePhase,
   describePhaseDetailed,
   canSelectBlocker,
@@ -34,6 +33,22 @@ import {
   registerPassiveHandler,
 } from './combat.js';
 import { registerAIHelpers, runAI } from './ai.js';
+
+function continueAIIfNeeded() {
+  if (state.game?.currentPlayer === 1) {
+    runAI();
+  }
+}
+
+function skipCombatPhase() {
+  skipCombat();
+  continueAIIfNeeded();
+}
+
+function resolveCombatWrapper() {
+  resolveCombatPhase();
+  continueAIIfNeeded();
+}
 
 export function createPlayer(name, color, isAI, deck) {
   return {
@@ -540,6 +555,7 @@ export function beginTurn(playerIndex) {
     if (creature.buffs) {
       creature.buffs = creature.buffs.filter((buff) => buff.duration !== 'endOfTurn');
     }
+    creature.damageMarked = 0;
   });
   addLog(`${player.name} starts their turn with ${player.availableMana} mana.`);
   game.phase = 'main1';
@@ -559,10 +575,7 @@ export function advancePhase() {
     startCombatStage();
     requestRender();
   } else if (game.phase === 'combat') {
-    skipCombat();
-    if (game.currentPlayer === 1) {
-      setTimeout(() => runAI(), 1000);
-    }
+    skipCombatPhase();
     return;
   } else if (game.phase === 'main2') {
     endTurn();
@@ -571,9 +584,7 @@ export function advancePhase() {
     game.phase = 'main2';
     requestRender();
   }
-  if (game.currentPlayer === 1) {
-    setTimeout(() => runAI(), 1000);
-  }
+  continueAIIfNeeded();
 }
 
 export function endTurn() {
@@ -583,9 +594,7 @@ export function endTurn() {
   game.turn += 1;
   beginTurn(game.currentPlayer);
   requestRender();
-  if (game.currentPlayer === 1) {
-    setTimeout(() => runAI(), 1000);
-  }
+  continueAIIfNeeded();
 }
 
 export function checkForWinner() {
@@ -652,9 +661,7 @@ export function startGame(color) {
   drawCards(ai, 5);
   beginTurn(game.currentPlayer);
   requestRender();
-  if (game.currentPlayer === 1) {
-    setTimeout(() => runAI(), 1000);
-  }
+  continueAIIfNeeded();
 }
 
 function pickAIOpponent(playerColor) {
@@ -669,14 +676,13 @@ export function describeGameState() {
 
 export {
   startCombatStage,
-  toggleCombatSelection,
   toggleAttacker,
   confirmAttackers,
-  skipCombat,
+  skipCombatPhase as skipCombat,
   prepareBlocks,
   assignBlockerToAttacker,
   selectBlocker,
-  resolveCombat,
+  resolveCombatWrapper as resolveCombat,
   describePhase,
   describePhaseDetailed,
   canSelectBlocker,

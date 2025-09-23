@@ -19,6 +19,7 @@ export function renderGame() {
   const fullLog = getFullLog(game).map((entry) => `<li>${entry}</li>`).join('');
   const pending = game.pendingAction;
   const blocking = game.blocking;
+  const shouldShowBlocking = Boolean(blocking && game.currentPlayer === 1 && blocking.awaitingDefender);
   return `
     <div class="view game-view">
       <section class="log-panel">
@@ -53,7 +54,7 @@ export function renderGame() {
         </div>
         <div class="phase-controls">${renderPhaseControls(game)}</div>
         ${pending ? renderPendingAction(pending) : ''}
-        ${blocking ? renderBlocking(blocking, game) : ''}
+        ${shouldShowBlocking ? renderBlocking(blocking, game) : ''}
       </section>
       <section class="hand-area">
         <header class="hand-header">
@@ -106,6 +107,21 @@ function renderCreature(creature, controllerIndex, game) {
   if (game.combat && isAttackingCreature(creature, controllerIndex, game)) {
     classes.push('attacker-card');
   }
+  const blockingInfo = game.blocking;
+  if (blockingInfo?.selectedBlocker?.instanceId === creature.instanceId) {
+    classes.push('blocker-selected');
+  }
+  if (blockingInfo && controllerIndex === 0) {
+    const isBlocking = Object.values(blockingInfo.assignments || {}).some(
+      (assigned) => assigned.instanceId === creature.instanceId,
+    );
+    if (isBlocking) {
+      classes.push('blocking-creature');
+    }
+  }
+  if (blockingInfo && controllerIndex === 1 && blockingInfo.assignments?.[creature.instanceId]) {
+    classes.push('attacker-blocked');
+  }
   const abilityButtons = [];
   if (
     controllerIndex === 0 &&
@@ -119,6 +135,13 @@ function renderCreature(creature, controllerIndex, game) {
       `<button class="mini" data-action="activate" data-creature="${creature.instanceId}">${creature.activated.description}</button>`,
     );
   }
+  const damage = creature.damageMarked || 0;
+  const currentToughness = Math.max(stats.toughness - damage, 0);
+  const toughnessClasses = ['stat', 'toughness'];
+  if (damage > 0) {
+    toughnessClasses.push('damaged');
+  }
+  const damageChip = damage > 0 ? `<span class="damage-chip">-${damage}</span>` : '';
   return `
     <div class="${classes.join(' ')}" data-card="${creature.instanceId}" data-controller="${controllerIndex}">
       <div class="card-header">
@@ -130,7 +153,7 @@ function renderCreature(creature, controllerIndex, game) {
         ${creature.passive ? `<p class="card-passive">${creature.passive.description}</p>` : ''}
       </div>
       <div class="card-footer">
-        <span>${stats.attack}/${stats.toughness}</span>
+        <span class="stat attack">${stats.attack}</span>/<span class="${toughnessClasses.join(' ')}">${currentToughness}</span>${damageChip}
       </div>
       ${abilityButtons.length ? `<div class="ability">${abilityButtons.join('')}</div>` : ''}
     </div>
@@ -168,13 +191,9 @@ function renderPhaseControls(game) {
   if (game.phase === 'main1') {
     buttons.push('<button data-action="end-phase">Go to Combat</button>');
   } else if (game.phase === 'combat') {
-    if (!game.combat || game.combat.stage === 'declare') {
-      buttons.push('<button data-action="declare-attackers">Begin Attack</button>');
-    } else if (game.combat.stage === 'choose') {
-      buttons.push('<button data-action="resolve-attacks">Declare Attackers</button>');
-    } else {
-      buttons.push('<button data-action="skip-combat">Skip Combat</button>');
-    }
+    const disabled = !game.combat || game.combat.stage !== 'choose' ? ' disabled' : '';
+    buttons.push(`<button data-action="declare-attackers"${disabled}>Declare Attackers</button>`);
+    buttons.push('<button data-action="skip-combat">Skip Combat</button>');
   } else if (game.phase === 'main2') {
     buttons.push('<button data-action="end-phase">End Turn</button>');
   }
@@ -199,18 +218,18 @@ function renderBlocking(blocking, game) {
       const stats = getCreatureStats(attacker.creature, attacker.controller, game);
       const assigned = blocking.assignments[attacker.creature.instanceId];
       const blockerName = assigned ? assigned.name : 'Unblocked';
-      return `<li data-attacker="${attacker.creature.instanceId}">${attacker.creature.name} (${stats.attack}/${stats.toughness}) → <strong>${blockerName}</strong></li>`;
+      const statusClass = assigned ? '' : ' class="unblocked"';
+      return `<li data-attacker="${attacker.creature.instanceId}">${attacker.creature.name} (${stats.attack}/${stats.toughness}) → <strong${statusClass}>${blockerName}</strong></li>`;
     })
     .join('');
-  const instructions =
-    game.players[1].isAI && game.currentPlayer === 0
-      ? 'Select attackers then press Declare Attackers.'
-      : 'Select one of your creatures to block, then choose an attacker.';
+  const instruction = blocking.selectedBlocker
+    ? `Selected blocker: <strong>${blocking.selectedBlocker.name}</strong>. Choose an attacker to assign it, then press Declare Blocks.`
+    : 'Select one of your creatures to block, tap an attacker to assign it, then press Declare Blocks.';
   return `
-    <div class="pending-overlay">
-      <p>${instructions}</p>
+    <div class="pending-overlay blocking-overlay">
+      <p>${instruction}</p>
       <ul>${attackers}</ul>
-      ${game.currentPlayer === 1 ? '<button data-action="resolve-blocks">Resolve Combat</button>' : ''}
+      <button data-action="declare-blocks">Declare Blocks</button>
     </div>
   `;
 }
