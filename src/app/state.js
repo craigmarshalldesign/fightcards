@@ -50,7 +50,5 @@ export function resetToMenu() {
 }
 
 const rawViteId = import.meta.env.VITE_INSTANTDB_ID;
-console.log('Raw VITE_INSTANTDB_ID value:', rawViteId);
 const appId = typeof rawViteId === 'string' ? rawViteId.replace('VITE_INSTANTDB_ID=', '').trim() : '';
-console.log('Cleaned appId value:', appId);
 export const db = init({ appId });
