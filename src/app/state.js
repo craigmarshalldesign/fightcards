@@ -49,4 +49,6 @@ export function resetToMenu() {
   requestRender();
 }
 
+console.log('VITE_INSTANTDB_ID value:', import.meta.env.VITE_INSTANTDB_ID);
+
 export const db = init({ appId: import.meta.env.VITE_INSTANTDB_ID });
