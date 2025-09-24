@@ -211,4 +211,61 @@ function bindGameEvents(root) {
       requestRender();
     });
   });
+  
+  // Position attack lines after DOM is updated
+  requestAnimationFrame(() => positionAttackLines(root));
+  // Reposition lines on resize/scroll for accuracy
+  window.addEventListener('resize', () => requestAnimationFrame(() => positionAttackLines(root)), { once: true });
+}
+
+function positionAttackLines(root) {
+  const attackLines = root.querySelectorAll('.attack-lines-svg .attack-line');
+  if (!attackLines.length) return;
+  
+  // Get the container for relative positioning
+  const gameView = root.querySelector('.game-view');
+  if (!gameView) return;
+  
+  attackLines.forEach(line => {
+    const attackerId = line.dataset.attacker;
+    const targetId = line.dataset.target;
+    
+    // Find attacker element - look in player battlefield
+    const attackerElement = root.querySelector(`[data-card="${attackerId}"][data-controller="0"]`);
+    if (!attackerElement) return;
+    
+    // Find target element (either life orb or blocking creature)
+    let targetElement;
+    if (targetId === 'opponent-life-orb') {
+      targetElement = root.querySelector('#opponent-life-orb');
+    } else {
+      targetElement = root.querySelector(`[data-card="${targetId}"][data-controller="1"]`);
+    }
+    if (!targetElement) return;
+    
+    // Calculate positions relative to the game view
+    const attackerRect = attackerElement.getBoundingClientRect();
+    const targetRect = targetElement.getBoundingClientRect();
+    const containerRect = gameView.getBoundingClientRect();
+    
+    // Position from top center of attacker card
+    const startX = attackerRect.left + (attackerRect.width / 2) - containerRect.left;
+    const startY = attackerRect.top - containerRect.top;
+    
+    // Position to center of target
+    const endX = targetRect.left + (targetRect.width / 2) - containerRect.left;
+    const endY = targetRect.top + (targetRect.height / 2) - containerRect.top;
+    
+    // Calculate line properties
+    const deltaX = endX - startX;
+    const deltaY = endY - startY;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+    
+    // Apply to SVG line
+    line.setAttribute('x1', `${startX}`);
+    line.setAttribute('y1', `${startY}`);
+    line.setAttribute('x2', `${endX}`);
+    line.setAttribute('y2', `${endY}`);
+  });
 }

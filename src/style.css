@@ -190,6 +190,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  min-height: 120px;
 }
 
 .log-header {
@@ -209,7 +210,6 @@ input {
 
 .log-recent li,
 .log-dropdown li {
-  margin-bottom: 0.35rem;
   color: #e5e8ff;
 }
 
@@ -218,6 +218,12 @@ input {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+
+.log-recent {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 60px;
 }
 
 .log-player {
@@ -241,10 +247,7 @@ input {
 }
 
 .log-card-ref {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
+  display: inline;
   cursor: pointer;
   text-decoration: underline;
   text-decoration-thickness: 2px;
@@ -436,7 +439,32 @@ input {
 
 .card.attacker-card {
   border-color: #f97316;
-  box-shadow: 0 0 14px rgba(249, 115, 22, 0.4);
+  border-width: 3px;
+  box-shadow: 0 0 20px rgba(249, 115, 22, 0.8), 0 0 40px rgba(249, 115, 22, 0.4);
+  transform: scale(1.02);
+  animation: pulse-attack 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-attack {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.8), 0 0 40px rgba(249, 115, 22, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(249, 115, 22, 1), 0 0 50px rgba(249, 115, 22, 0.6);
+  }
+}
+
+/* Death fade-out effect */
+.card.fading-out {
+  animation: fade-out-death 0.5s ease forwards;
+}
+
+@keyframes fade-out-death {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(1px);
+  }
 }
 
 .card.attacker-card.attacker-blocked {
@@ -473,7 +501,25 @@ input {
 .card-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   font-weight: 600;
+  gap: 0.5rem;
+}
+
+.card-cost {
+  flex-shrink: 0;
+  min-width: 1.5rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.card-name {
+  flex: 1;
+  text-align: right;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  line-height: 1.2;
 }
 
 .card-body {
@@ -533,6 +579,19 @@ input {
   gap: 0.5rem;
 }
 
+.hand-mana-section {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.hand-mana-section .mana-crystals {
+  background: rgba(15, 18, 32, 0.6);
+  border-radius: 12px;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
 .hand-header {
   display: flex;
   justify-content: space-between;
@@ -551,12 +610,7 @@ input {
 }
 
 .status-bar {
-  background: rgba(15, 18, 32, 0.78);
-  border-radius: 16px;
-  padding: 0.6rem 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  display: none; /* Hidden since we now use the new player stat bars */
 }
 
 .card-preview-overlay {
@@ -650,9 +704,7 @@ input {
 
 .life-summary,
 .turn-summary {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.82rem;
+  display: none; /* Now handled by new player stat bars */
 }
 
 .phase-controls {
@@ -683,6 +735,10 @@ input {
   color: #f87171;
 }
 
+.attacking-overlay .attacking {
+  color: #f97316;
+}
+
 .pending-overlay button {
   margin-top: 0.2rem;
 }
@@ -706,7 +762,418 @@ button.disabled {
   box-shadow: none;
 }
 
+/* Player Stat Bars */
+.player-stat-bar {
+  background: linear-gradient(135deg, rgba(15, 18, 32, 0.95), rgba(25, 30, 50, 0.9));
+  border-radius: 16px;
+  padding: 0.8rem 1rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 0.5rem;
+}
+
+.opponent-stat-bar {
+  border-color: rgba(255, 154, 158, 0.3);
+  background: linear-gradient(135deg, rgba(30, 15, 18, 0.95), rgba(50, 25, 30, 0.9));
+}
+
+.player-stat-bar {
+  border-color: rgba(181, 196, 255, 0.3);
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+.stat-bar-content {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.stat-bar-content .player-identity {
+  justify-self: start;
+}
+
+.stat-bar-content .life-orb-container {
+  justify-self: center;
+}
+
+.stat-bar-content .card-counts {
+  justify-self: end;
+}
+
+.player-identity {
+  min-width: 120px;
+}
+
+.player-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+}
+
+.player-type {
+  font-size: 0.8rem;
+  color: #a5b4fc;
+  opacity: 0.8;
+}
+
+.opponent-stat-bar .player-type {
+  color: #fca5a5;
+}
+
+/* Life Orb */
+.life-orb-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.life-orb {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  border: 3px solid #64748b;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 15px rgba(34, 197, 94, 0.3);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.life-orb-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, #22c55e, #16a34a, #15803d);
+  transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease;
+  border-radius: 0 0 50px 50px;
+}
+
+.life-orb.life-warning .life-orb-fill {
+  background: linear-gradient(to top, #f59e0b, #d97706, #b45309);
+}
+
+.life-orb.life-warning {
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 15px rgba(245, 158, 11, 0.4);
+}
+
+.life-orb.life-critical .life-orb-fill {
+  background: linear-gradient(to top, #ef4444, #dc2626, #b91c1c);
+}
+
+.life-orb.life-critical {
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 15px rgba(239, 68, 68, 0.5);
+  animation: pulse-danger 2s ease-in-out infinite;
+}
+
+@keyframes pulse-danger {
+  0%, 100% {
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 15px rgba(239, 68, 68, 0.5);
+  }
+  50% {
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 25px rgba(239, 68, 68, 0.8);
+  }
+}
+
+.life-value {
+  position: relative;
+  z-index: 1;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.life-label {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+/* Mana Crystals */
+.mana-crystals {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mana-crystal-row {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.mana-crystal {
+  width: 24px;
+  height: 28px;
+  position: relative;
+}
+
+.crystal-inner {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #374151, #1f2937);
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+  border: 1px solid #6b7280;
+  transition: all 0.3s ease;
+}
+
+.mana-crystal.filled .crystal-inner {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8, #1e40af);
+  border-color: #60a5fa;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.6), inset 0 0 6px rgba(147, 197, 253, 0.3);
+}
+
+.mana-crystal.available .crystal-inner {
+  background: linear-gradient(135deg, #64748b, #475569);
+  border-color: #94a3b8;
+}
+
+.mana-crystal.locked .crystal-inner {
+  background: linear-gradient(135deg, #1f2937, #111827);
+  border-color: #374151;
+  opacity: 0.4;
+}
+
+.mana-label {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Card Counts */
+.card-counts {
+  display: flex;
+  gap: 1rem;
+}
+
+.card-count-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 40px;
+}
+
+.count-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  position: relative;
+}
+
+.deck-icon {
+  background: linear-gradient(135deg, #7c3aed, #5b21b6);
+  border: 1px solid #a855f7;
+}
+
+.hand-icon {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border: 1px solid #fbbf24;
+}
+
+.grave-icon {
+  background: linear-gradient(135deg, #6b7280, #374151);
+  border: 1px solid #9ca3af;
+}
+
+.count-icon::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.count-value {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.count-label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+/* Turn Indicator */
+.game-controls {
+  background: linear-gradient(135deg, rgba(15, 18, 32, 0.78), rgba(25, 30, 50, 0.85));
+  border-radius: 16px;
+  padding: 0.8rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+
+.turn-indicator {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(30, 41, 81, 0.6), rgba(15, 23, 42, 0.8));
+  border: 2px solid rgba(148, 163, 184, 0.3);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.turn-indicator.player-turn {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: linear-gradient(135deg, rgba(21, 128, 61, 0.3), rgba(15, 78, 46, 0.6));
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.25);
+}
+
+.turn-indicator.opponent-turn {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: linear-gradient(135deg, rgba(153, 27, 27, 0.3), rgba(127, 29, 29, 0.6));
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.25);
+}
+
+.turn-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.turn-number {
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: #fff;
+}
+
+.phase-name {
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  text-transform: capitalize;
+}
+
+.current-player {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+  text-align: right;
+}
+
+.turn-indicator.player-turn .current-player {
+  color: #22c55e;
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+}
+
+.turn-indicator.opponent-turn .current-player {
+  color: #ef4444;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+/* Attack Lines Visual System */
+
+.attack-lines-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+}
+
+.attack-line {
+  stroke-width: 3px;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.75));
+}
+
+.attack-line.unblocked {
+  stroke: #ef4444;
+  marker-end: url(#arrow-red);
+}
+
+.attack-line.blocked {
+  stroke: #f97316;
+  marker-end: url(#arrow-orange);
+  filter: drop-shadow(0 0 6px rgba(249, 115, 22, 0.75));
+}
+
+@keyframes attack-line-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes attack-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(239, 68, 68, 1), 0 0 20px rgba(239, 68, 68, 0.6);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 900px) {
+  .stat-bar-content {
+    gap: 1rem;
+  }
+  
+  .mana-crystal {
+    width: 24px;
+    height: 28px;
+  }
+  
+  .life-orb {
+    width: 50px;
+    height: 50px;
+  }
+  
+  .card-counts {
+    gap: 0.8rem;
+  }
+}
+
 @media (max-width: 600px) {
+  .stat-bar-content {
+    flex-wrap: wrap;
+    gap: 0.8rem;
+  }
+  
+  .player-identity {
+    min-width: 100px;
+  }
+  
+  .mana-crystal {
+    width: 20px;
+    height: 24px;
+  }
+  
+  .life-orb {
+    width: 45px;
+    height: 45px;
+  }
+  
+  .life-value {
+    font-size: 1rem;
+  }
+  
+  .turn-indicator {
+    flex-direction: column;
+    gap: 0.4rem;
+    text-align: center;
+  }
+  
+  .current-player {
+    text-align: center;
+  }
+
   body {
     align-items: flex-start;
     padding: 0;
@@ -727,7 +1194,7 @@ button.disabled {
 
   .log-panel,
   .battlefield-area,
-  .status-bar,
+  .game-controls,
   .hand-area {
     border-radius: 14px;
   }

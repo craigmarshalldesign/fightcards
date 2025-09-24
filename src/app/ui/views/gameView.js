@@ -20,13 +20,19 @@ export function renderGame() {
   const player = game.players[0];
   const opponent = game.players[1];
   const recentLogEntries = getRecentLogEntries(game);
-  const recentLog = recentLogEntries.map((entry) => `<li>${renderLogEntry(entry)}</li>`).join('');
+  // Always show exactly 5 entries to maintain consistent size
+  const paddedEntries = [...recentLogEntries];
+  while (paddedEntries.length < 5) {
+    paddedEntries.push({ segments: [{ type: 'text', text: '' }] });
+  }
+  const recentLog = paddedEntries.map((entry) => `<li>${renderLogEntry(entry) || '&nbsp;'}</li>`).join('');
   const fullLog = getFullLog(game, recentLogEntries.length)
     .map((entry) => `<li>${renderLogEntry(entry)}</li>`)
     .join('');
   const pending = game.pendingAction;
   const blocking = game.blocking;
   const shouldShowBlocking = Boolean(blocking && game.currentPlayer === 1 && blocking.awaitingDefender);
+  const shouldShowAttackers = Boolean(game.combat && game.combat.stage === 'choose' && game.currentPlayer === 0);
   return `
     <div class="view game-view">
       <section class="log-panel">
@@ -41,6 +47,7 @@ export function renderGame() {
           </div>
         </div>
       </section>
+      ${renderPlayerStatBar(opponent, game, true)}
       <section class="battlefield-area">
         <div class="battle-row opponent-row">
           ${renderPlayerBoard(opponent, game, true)}
@@ -49,27 +56,47 @@ export function renderGame() {
           ${renderPlayerBoard(player, game, false)}
         </div>
       </section>
-      <section class="status-bar">
-        <div class="life-summary">
-          <span>Opponent Life: ${opponent.life}</span>
-          <span>Your Life: ${player.life}</span>
+      ${renderPlayerStatBar(player, game, false)}
+      <section class="game-controls">
+        <div class="turn-indicator ${game.currentPlayer === 0 ? 'player-turn' : 'opponent-turn'}">
+          <div class="turn-info">
+            <span class="turn-number">Turn ${game.turn}</span>
+            <span class="phase-name">${describePhase(game)}</span>
+          </div>
+          <div class="current-player">
+            ${game.currentPlayer === 0 ? 'Your Turn' : 'AI Turn'}
+          </div>
         </div>
-        <div class="turn-summary">
-          <span>Turn ${game.turn}</span>
-          <span>${describePhase(game)}</span>
-          <span>Mana ${player.availableMana}/${player.maxMana}</span>
-        </div>
-        <div class="phase-controls">${renderPhaseControls(game)}</div>
+        <div class="phase-controls">${renderPhaseControls(game, shouldShowAttackers)}</div>
         ${pending ? renderPendingAction(pending) : ''}
         ${shouldShowBlocking ? renderBlocking(blocking, game) : ''}
+        ${shouldShowAttackers ? renderAttackers(game) : ''}
       </section>
+      ${renderAttackLines(game)}
       <section class="hand-area">
+        <div class="hand-mana-section">
+          <div class="mana-crystals">
+            <div class="mana-crystal-row">
+              ${Array.from({length: Math.max(player.maxMana, 1)}, (_, i) => `
+                <div class="mana-crystal ${i < player.availableMana ? 'filled' : (i < player.maxMana ? 'available' : 'locked')}">
+                  <div class="crystal-inner"></div>
+                </div>
+              `).join('')}
+            </div>
+            <div class="mana-label">${player.availableMana}/${player.maxMana} Mana</div>
+          </div>
+        </div>
         <header class="hand-header">
           <h3>Your Hand</h3>
           <span>${player.hand.length} cards</span>
         </header>
         <div class="hand-cards">
-          ${player.hand.map((card) => renderCard(card, true, game)).join('')}
+          ${[...player.hand].sort((a, b) => {
+            const costA = a.cost ?? 0;
+            const costB = b.cost ?? 0;
+            if (costA !== costB) return costA - costB;
+            return (a.name || '').localeCompare(b.name || '');
+          }).map((card) => renderCard(card, true, game)).join('')}
         </div>
       </section>
       ${renderCardPreviewModal(game)}
@@ -77,18 +104,67 @@ export function renderGame() {
   `;
 }
 
-function renderPlayerBoard(player, game, isOpponent) {
-  const creatures = player.battlefield.filter((c) => c.type === 'creature');
+function renderPlayerStatBar(player, game, isOpponent) {
   const deckCount = player.deck.length;
   const handCount = player.hand.length;
   const graveCount = player.graveyard.length;
   const playerIndex = game.players.indexOf(player);
+  const maxLife = 30; // Assuming max life is 30, adjust if needed
+  const lifePercentage = Math.max(0, Math.min(100, (player.life / maxLife) * 100));
+  const currentMana = isOpponent ? 0 : player.availableMana; // Hide opponent mana for gameplay reasons
+  const maxMana = isOpponent ? 0 : player.maxMana;
+  
+  // Determine health color based on life percentage
+  let lifeColor = 'healthy';
+  if (lifePercentage <= 25) {
+    lifeColor = 'critical';
+  } else if (lifePercentage <= 50) {
+    lifeColor = 'warning';
+  }
+  
+  return `
+    <section class="player-stat-bar ${isOpponent ? 'opponent-stat-bar' : 'player-stat-bar'}">
+      <div class="stat-bar-content">
+        <div class="player-identity">
+          <div class="player-name">${player.name}</div>
+          <div class="player-type">${isOpponent ? 'AI Opponent' : 'You'}</div>
+        </div>
+        
+        <div class="life-orb-container">
+          <div class="life-orb life-${lifeColor}" ${isOpponent ? 'id="opponent-life-orb"' : 'id="player-life-orb"'}>
+            <div class="life-orb-fill" style="height: ${lifePercentage}%"></div>
+            <div class="life-value">${player.life}</div>
+          </div>
+          <div class="life-label">Life</div>
+        </div>
+        
+        <div class="card-counts">
+          <div class="card-count-item">
+            <div class="count-icon deck-icon"></div>
+            <div class="count-value">${deckCount}</div>
+            <div class="count-label">Deck</div>
+          </div>
+          <div class="card-count-item">
+            <div class="count-icon hand-icon"></div>
+            <div class="count-value">${handCount}</div>
+            <div class="count-label">Hand</div>
+          </div>
+          <div class="card-count-item">
+            <div class="count-icon grave-icon"></div>
+            <div class="count-value">${graveCount}</div>
+            <div class="count-label">Grave</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderPlayerBoard(player, game, isOpponent) {
+  const creatures = player.battlefield.filter((c) => c.type === 'creature');
+  const playerIndex = game.players.indexOf(player);
   return `
     <div class="board" data-player="${playerIndex}">
-      <div class="player-header ${isOpponent ? 'opponent' : ''}">
-        <div class="player-name">${player.name}</div>
-        <div class="player-stats">Deck ${deckCount} · Hand ${handCount} · Grave ${graveCount}</div>
-      </div>
       <div class="battlefield">
         ${
           creatures.length
@@ -129,6 +205,9 @@ function renderCreature(creature, controllerIndex, game) {
   }
   if (blockingInfo && controllerIndex === 1 && blockingInfo.assignments?.[creature.instanceId]) {
     classes.push('attacker-blocked');
+  }
+  if (creature._dying) {
+    classes.push('fading-out');
   }
   const abilityButtons = [];
   if (
@@ -193,7 +272,7 @@ function renderCard(card, isHand, game) {
   `;
 }
 
-function renderPhaseControls(game) {
+function renderPhaseControls(game, hideSkipCombat = false) {
   const isPlayerTurn = game.currentPlayer === 0;
   if (!isPlayerTurn) {
     return `<p class="info">AI is taking its turn...</p>`;
@@ -201,9 +280,7 @@ function renderPhaseControls(game) {
   const buttons = [];
   if (game.phase === 'main1') {
     buttons.push('<button data-action="end-phase">Go to Combat</button>');
-  } else if (game.phase === 'combat') {
-    const disabled = !game.combat || game.combat.stage !== 'choose' ? ' disabled' : '';
-    buttons.push(`<button data-action="declare-attackers"${disabled}>Declare Attackers</button>`);
+  } else if (game.phase === 'combat' && !hideSkipCombat) {
     buttons.push('<button data-action="skip-combat">Skip Combat</button>');
   } else if (game.phase === 'main2') {
     buttons.push('<button data-action="end-phase">End Turn</button>');
@@ -242,6 +319,59 @@ function renderBlocking(blocking, game) {
       <ul>${attackers}</ul>
       <button data-action="declare-blocks">Declare Blocks</button>
     </div>
+  `;
+}
+
+function renderAttackers(game) {
+  const attackers = game.combat.attackers
+    .map((attacker) => {
+      const stats = getCreatureStats(attacker.creature, attacker.controller, game);
+      return `<li data-attacker="${attacker.creature.instanceId}">${attacker.creature.name} (${stats.attack}/${stats.toughness}) - <strong class="attacking">Attacking</strong></li>`;
+    })
+    .join('');
+  
+  const instruction = game.combat.attackers.length > 0 
+    ? 'Click on creatures to remove them from attack, then press Declare Attackers to proceed.'
+    : 'No creatures selected to attack. Select creatures by clicking them, then press Declare Attackers.';
+  
+  return `
+    <div class="pending-overlay attacking-overlay">
+      <button data-action="declare-attackers">Declare Attackers</button>
+      <p>${instruction}</p>
+      <ul>${attackers || '<li>No attackers selected.</li>'}</ul>
+      <button data-action="skip-combat">Skip Combat</button>
+    </div>
+  `;
+}
+
+function renderAttackLines(game) {
+  // Only show attack lines during combat when there are attackers
+  if (!game.combat || !game.combat.attackers || game.combat.attackers.length === 0) {
+    return '';
+  }
+
+  const lines = game.combat.attackers
+    .map((attacker) => {
+      const attackerId = attacker.creature.instanceId;
+      const isBlocked = game.blocking?.assignments?.[attackerId];
+      const variant = isBlocked ? 'blocked' : 'unblocked';
+      const targetId = isBlocked ? isBlocked.instanceId : 'opponent-life-orb';
+      return `<line class="attack-line ${variant}" data-attacker="${attackerId}" data-target="${targetId}" x1="0" y1="0" x2="0" y2="0" />`;
+    })
+    .join('');
+
+  return `
+    <svg class="attack-lines-svg" width="100%" height="100%" preserveAspectRatio="none">
+      <defs>
+        <marker id="arrow-red" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#ef4444" />
+        </marker>
+        <marker id="arrow-orange" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#f97316" />
+        </marker>
+      </defs>
+      ${lines}
+    </svg>
   `;
 }
 
@@ -294,7 +424,7 @@ function renderLogCard(segment) {
   const snapshotAttr = segment.snapshot
     ? ` data-card-snapshot="${escapeHtml(encodeURIComponent(JSON.stringify(segment.snapshot)))}"`
     : '';
-  return `<button type="button" class="${classes}"${instanceAttr}${snapshotAttr}>${escapeHtml(segment.name)}</button>`;
+  return `<span class="${classes}"${instanceAttr}${snapshotAttr}>${escapeHtml(segment.name)}</span>`;
 }
 
 function renderCardPreviewModal(game) {

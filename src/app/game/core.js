@@ -86,6 +86,7 @@ export function drawCards(player, amount) {
     const card = player.deck.pop();
     player.hand.push(card);
   }
+  sortHand(player);
 }
 
 export function spendMana(player, amount) {
@@ -97,6 +98,18 @@ export function removeFromHand(player, instanceId) {
   if (index >= 0) {
     player.hand.splice(index, 1);
   }
+}
+
+export function sortHand(player) {
+  player.hand.sort((a, b) => {
+    const costA = a.cost ?? 0;
+    const costB = b.cost ?? 0;
+    if (costA !== costB) {
+      return costA - costB;
+    }
+    // If costs are equal, sort by name for consistency
+    return (a.name || '').localeCompare(b.name || '');
+  });
 }
 
 export function canPlayCard(card, playerIndex, game) {
@@ -437,6 +450,7 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
       if (controller.graveyard.length) {
         const revived = controller.graveyard.pop();
         controller.hand.push(revived);
+        sortHand(controller);
         addLog([playerSegment(controller), textSegment(' returns '), cardSegment(revived), textSegment(' to hand.')]);
       }
       break;
@@ -725,10 +739,7 @@ export function beginTurn(playerIndex) {
     if (creature.temporaryHaste) {
       creature.temporaryHaste = false;
     }
-    if (creature.buffs) {
-      creature.buffs = creature.buffs.filter((buff) => buff.duration !== 'endOfTurn');
-    }
-    creature.damageMarked = 0;
+    // Note: damage and end-of-turn buffs are now cleared in endTurn(), not here
   });
   addLog([playerSegment(player), textSegment(` starts their turn with ${player.availableMana} mana.`)]);
   game.phase = 'main1';
@@ -762,6 +773,19 @@ export function advancePhase() {
 
 export function endTurn() {
   const game = state.game;
+  
+  // End of turn cleanup - clear damage and end-of-turn effects for all creatures
+  game.players.forEach((player) => {
+    player.battlefield.forEach((creature) => {
+      // Clear damage at end of turn, not beginning of next turn
+      creature.damageMarked = 0;
+      // Remove end-of-turn buffs
+      if (creature.buffs) {
+        creature.buffs = creature.buffs.filter((buff) => buff.duration !== 'endOfTurn');
+      }
+    });
+  });
+  
   game.phase = 'main1';
   game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
   game.turn += 1;

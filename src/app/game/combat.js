@@ -14,9 +14,26 @@ export function triggerAttackPassive(creature, controllerIndex) {
 
 export function startCombatStage() {
   const game = state.game;
-  game.combat = { attackers: [], stage: 'choose' };
+  const player = game.players[0];
+  
+  // Auto-select all eligible attacking creatures
+  const eligibleAttackers = player.battlefield.filter(creature => 
+    creature.type === 'creature' && !creature.summoningSickness
+  );
+  
+  game.combat = { 
+    attackers: eligibleAttackers.map(creature => ({ creature, controller: 0 })), 
+    stage: 'choose' 
+  };
   game.blocking = null;
+  
   addLog('Combat begins.');
+  
+  if (eligibleAttackers.length > 0) {
+    addLog(`${eligibleAttackers.length} creature(s) ready to attack.`);
+  } else {
+    addLog('No creatures available to attack.');
+  }
 }
 
 export function toggleAttacker(creature) {
@@ -77,7 +94,7 @@ export function prepareBlocks() {
     awaitingDefender: false,
   };
   const defending = game.currentPlayer === 0 ? 1 : 0;
-  const defenders = game.players[defending].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
+  const defenders = game.players[defending].battlefield.filter((c) => c.type === 'creature');
   if (defenders.length === 0) {
     addLog([playerSegment(game.players[defending]), textSegment(' has no blockers.')]);
     resolveCombat();
@@ -94,7 +111,7 @@ export function prepareBlocks() {
 
 export function aiAssignBlocks() {
   const game = state.game;
-  const defenders = game.players[1].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
+  const defenders = game.players[1].battlefield.filter((c) => c.type === 'creature');
   game.blocking.attackers.forEach((attacker) => {
     if (hasShimmer(attacker.creature)) {
       return;
@@ -110,11 +127,7 @@ export function selectBlocker(creature) {
   const game = state.game;
   if (!game.blocking) return;
   if (!game.combat || game.combat.stage !== 'blockers') return;
-  if (creature.summoningSickness) {
-    addLog([cardSegment(creature), textSegment(' is summoning sick and cannot block.')]);
-    requestRender();
-    return;
-  }
+  // Creatures can block even with summoning sickness
   game.blocking.selectedBlocker = creature;
   addLog([cardSegment(creature), textSegment(' is ready to block.')]);
   requestRender();
@@ -238,11 +251,12 @@ export function describePhaseDetailed(game) {
 
 export function canSelectBlocker(creature, controllerIndex, game) {
   if (!game.blocking) return false;
+  // Creatures can block regardless of summoning sickness
   if (game.currentPlayer === 0 && controllerIndex === 0) {
-    return !creature.summoningSickness;
+    return true;
   }
   if (game.currentPlayer === 1 && controllerIndex === 0) {
-    return !creature.summoningSickness;
+    return true;
   }
   if (game.currentPlayer === 1 && controllerIndex === 1) {
     return true;

@@ -182,7 +182,7 @@ function aiDeclareAttacks() {
     selectedBlocker: null,
     awaitingDefender: false,
   };
-  const blockers = game.players[0].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
+  const blockers = game.players[0].battlefield.filter((c) => c.type === 'creature');
   if (blockers.length === 0) {
     addLog([playerSegment(game.players[0]), textSegment(' has no blockers.')]);
     resolveCombat();

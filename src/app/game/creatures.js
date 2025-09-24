@@ -1,6 +1,7 @@
 import { createCardInstance } from '../../game/cards/index.js';
 import { state } from '../state.js';
 import { addLog, cardSegment, damageSegment, playerSegment, textSegment } from './log.js';
+import { sortHand } from './core.js';
 
 let checkForWinnerHook = () => {};
 
@@ -48,6 +49,7 @@ export function bounceCreature(creature, controllerIndex) {
   removeFromBattlefield(player, creature.instanceId);
   creature.summoningSickness = !creature.abilities?.haste;
   player.hand.push(creature);
+  sortHand(player);
   addLog([cardSegment(creature), textSegment(' returns to '), playerSegment(player), textSegment("'s hand.")]);
 }
 
@@ -175,8 +177,20 @@ export function getCreatureStats(creature, controllerIndex, game) {
 
 export function checkForDeadCreatures() {
   state.game.players.forEach((player, idx) => {
-    player.battlefield
-      .filter((c) => c.type === 'creature' && c.damageMarked >= getCreatureStats(c, idx, state.game).toughness)
-      .forEach((creature) => destroyCreature(creature, idx));
+    const dying = player.battlefield.filter(
+      (c) => c.type === 'creature' && c.damageMarked >= getCreatureStats(c, idx, state.game).toughness,
+    );
+    if (dying.length === 0) return;
+    // Mark for fade-out in UI and delay removal slightly for animation
+    dying.forEach((creature) => {
+      creature._dying = true;
+    });
+    // Trigger a render so UI can apply fade-out class
+    requestAnimationFrame?.(() => {});
+    setTimeout(() => {
+      dying.forEach((creature) => destroyCreature(creature, idx));
+      // ensure UI refresh after removals
+      try { require('../state.js').requestRender?.(); } catch {}
+    }, 350);
   });
 }
