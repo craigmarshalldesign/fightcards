@@ -1,6 +1,11 @@
 import { state } from '../state.js';
 
 const MAX_LOG_ENTRIES = 200;
+const DEFAULT_CATEGORY = 'battle';
+
+function normalizeCategory(category) {
+  return category ?? DEFAULT_CATEGORY;
+}
 
 export function textSegment(text) {
   return { type: 'text', text };
@@ -72,29 +77,39 @@ export function valueSegment(value, variant = 'default') {
   return { type: 'value', value, variant };
 }
 
-export function addLog(message, gameOverride) {
+export function addLog(message, gameOverride, options = {}) {
   const target = gameOverride || state.game;
   if (!target) return;
   let entry;
   if (Array.isArray(message)) {
     entry = { segments: message };
   } else if (message && typeof message === 'object' && Array.isArray(message.segments)) {
-    entry = message;
+    entry = { ...message };
   } else {
     entry = { segments: [textSegment(String(message))] };
   }
+  const normalizedOptions = typeof options === 'string' ? { category: options } : options;
   entry.timestamp = Date.now();
+  entry.category = normalizeCategory(entry.category ?? normalizedOptions.category);
   target.log.push(entry);
   if (target.log.length > MAX_LOG_ENTRIES) {
     target.log.splice(0, target.log.length - MAX_LOG_ENTRIES);
   }
 }
 
-export function getRecentLogEntries(game, count = 5) {
-  return game.log.slice(-count).reverse();
+export function getLogEntries(game, category = DEFAULT_CATEGORY) {
+  return game.log
+    .filter((entry) => normalizeCategory(entry.category) === normalizeCategory(category))
+    .slice()
+    .reverse();
 }
 
-export function getFullLog(game, recentCount = 5) {
-  const skip = Math.min(recentCount, game.log.length);
-  return game.log.slice(0, game.log.length - skip).reverse();
+export function getRecentLogEntries(game, category = DEFAULT_CATEGORY, count = 5) {
+  return getLogEntries(game, category).slice(0, count);
+}
+
+export function getFullLog(game, category = DEFAULT_CATEGORY, recentCount = 5) {
+  const entries = getLogEntries(game, category).slice().reverse();
+  const skip = Math.min(recentCount, entries.length);
+  return entries.slice(0, entries.length - skip).reverse();
 }

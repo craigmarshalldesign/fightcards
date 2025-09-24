@@ -114,7 +114,7 @@ function aiPlayTurnStep(aiPlayer) {
     scheduleAI(() => {
       helpers.removeFromHand(aiPlayer, card.instanceId);
       helpers.spendMana(aiPlayer, card.cost ?? 0);
-      addLog([playerSegment(aiPlayer), textSegment(' casts '), cardSegment(card), textSegment('.')]);
+      addLog([playerSegment(aiPlayer), textSegment(' casts '), cardSegment(card), textSegment('.')], undefined, 'spell');
       const pending = {
         controller: 1,
         card,

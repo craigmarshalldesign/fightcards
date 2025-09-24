@@ -15,7 +15,8 @@ export const initialState = {
   },
   game: null,
   ui: {
-    logExpanded: false,
+    battleLogExpanded: false,
+    spellLogExpanded: false,
     previewCard: null,
   },
 };
