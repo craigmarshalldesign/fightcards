@@ -10,6 +10,7 @@ import {
   canPlayCard,
 } from '../../game/core.js';
 import { getCreatureStats, hasShimmer } from '../../game/creatures.js';
+import { renderBattlefieldSkin } from './battlefield/index.js';
 
 function getCardColorClass(card) {
   return `card-color-${card?.color ?? 'neutral'}`;
@@ -149,6 +150,7 @@ ${renderPlayerStatBar(opponent, game, true)}
         <div class="battle-row opponent-row">
           ${renderPlayerBoard(opponent, game, true)}
         </div>
+        ${renderBattlefieldCrevice()}
         <div class="battle-row player-row">
           ${renderPlayerBoard(player, game, false)}
         </div>
@@ -367,11 +369,23 @@ function renderPlayerStatBar(player, game, isOpponent) {
   `;
 }
 
+function renderBattlefieldCrevice() {
+  return `
+    <div class="battlefield-crevice">
+      <div class="crevice-surface"></div>
+      <div class="crevice-fissures"></div>
+    </div>
+  `;
+}
+
 function renderPlayerBoard(player, game, isOpponent) {
   const creatures = player.battlefield.filter((c) => c.type === 'creature');
   const playerIndex = game.players.indexOf(player);
+  const colorClass = sanitizeClass(player.color || 'neutral');
+  const skin = renderBattlefieldSkin(player.color, { isOpponent });
   return `
-    <div class="board" data-player="${playerIndex}">
+    <div class="board player-battlefield player-color-${colorClass}" data-player="${playerIndex}">
+      ${skin}
       <div class="battlefield">
         ${
           creatures.length
