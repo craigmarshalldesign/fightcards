@@ -226,20 +226,33 @@ function positionAttackLines(root) {
   const gameView = root.querySelector('.game-view');
   if (!gameView) return;
   
-  attackLines.forEach(line => {
+  attackLines.forEach((line) => {
     const attackerId = line.dataset.attacker;
+    const attackerController = Number.parseInt(line.dataset.attackerController ?? '', 10);
     const targetId = line.dataset.target;
-    
-    // Find attacker element - look in player battlefield
-    const attackerElement = root.querySelector(`[data-card="${attackerId}"][data-controller="0"]`);
+    const targetControllerRaw = line.dataset.targetController;
+
+    const attackerSelectorBase = `[data-card="${attackerId}"]`;
+    const attackerControllerSelector = Number.isNaN(attackerController)
+      ? ''
+      : `[data-controller="${attackerController}"]`;
+    const attackerElement =
+      root.querySelector(`${attackerSelectorBase}${attackerControllerSelector}`) ||
+      root.querySelector(attackerSelectorBase);
     if (!attackerElement) return;
-    
-    // Find target element (either life orb or blocking creature)
+
     let targetElement;
-    if (targetId === 'opponent-life-orb') {
-      targetElement = root.querySelector('#opponent-life-orb');
+    if (targetId === 'opponent-life-orb' || targetId === 'player-life-orb') {
+      targetElement = root.querySelector(`#${targetId}`);
     } else {
-      targetElement = root.querySelector(`[data-card="${targetId}"][data-controller="1"]`);
+      const targetController = Number.parseInt(targetControllerRaw ?? '', 10);
+      const targetSelectorBase = `[data-card="${targetId}"]`;
+      const targetControllerSelector = Number.isNaN(targetController)
+        ? ''
+        : `[data-controller="${targetController}"]`;
+      targetElement =
+        root.querySelector(`${targetSelectorBase}${targetControllerSelector}`) ||
+        root.querySelector(targetSelectorBase);
     }
     if (!targetElement) return;
     

@@ -1,5 +1,5 @@
 import { createCardInstance } from '../../game/cards/index.js';
-import { state } from '../state.js';
+import { requestRender, state } from '../state.js';
 import { addLog, cardSegment, damageSegment, playerSegment, textSegment } from './log.js';
 import { sortHand } from './core.js';
 
@@ -127,9 +127,7 @@ export function dealDamageToCreature(creature, controllerIndex, amount) {
     ]);
   } else {
     addLog([cardSegment(creature), textSegment(' takes '), damageSegment(amount), textSegment(' damage.')]);
-  }
-  if (creature.damageMarked >= stats.toughness) {
-    destroyCreature(creature, controllerIndex);
+    markCreatureForDeath(creature, controllerIndex);
   }
 }
 
@@ -137,6 +135,8 @@ export function destroyCreature(creature, controllerIndex) {
   const player = state.game.players[controllerIndex];
   removeFromBattlefield(player, creature.instanceId);
   creature.damageMarked = 0;
+  delete creature._dying;
+  delete creature._destroyScheduled;
   player.graveyard.push(creature);
   addLog([cardSegment(creature), textSegment(' dies.')]);
 }
@@ -181,16 +181,25 @@ export function checkForDeadCreatures() {
       (c) => c.type === 'creature' && c.damageMarked >= getCreatureStats(c, idx, state.game).toughness,
     );
     if (dying.length === 0) return;
-    // Mark for fade-out in UI and delay removal slightly for animation
-    dying.forEach((creature) => {
-      creature._dying = true;
-    });
-    // Trigger a render so UI can apply fade-out class
-    requestAnimationFrame?.(() => {});
-    setTimeout(() => {
-      dying.forEach((creature) => destroyCreature(creature, idx));
-      // ensure UI refresh after removals
-      try { require('../state.js').requestRender?.(); } catch {}
-    }, 350);
+    dying.forEach((creature) => markCreatureForDeath(creature, idx));
   });
+}
+
+function markCreatureForDeath(creature, controllerIndex) {
+  if (creature._destroyScheduled) {
+    return;
+  }
+  creature._dying = true;
+  creature._destroyScheduled = true;
+  requestRender();
+  setTimeout(() => {
+    const game = state.game;
+    const player = game?.players?.[controllerIndex];
+    const stillOnBattlefield = player?.battlefield?.some((c) => c.instanceId === creature.instanceId);
+    if (!stillOnBattlefield) {
+      return;
+    }
+    destroyCreature(creature, controllerIndex);
+    requestRender();
+  }, 350);
 }
