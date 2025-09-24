@@ -356,13 +356,33 @@ function positionTargetLines(root) {
   const targetLines = root.querySelectorAll('.target-lines-svg .target-line');
   if (!targetLines.length) return;
   const gameView = root.querySelector('.game-view');
-  const activePanel = root.querySelector('.active-spell-panel');
-  if (!gameView || !activePanel) return;
+  if (!gameView) return;
 
   const containerRect = gameView.getBoundingClientRect();
-  const sourceRect = activePanel.getBoundingClientRect();
-  const startX = sourceRect.left + sourceRect.width / 2 - containerRect.left;
-  const startY = sourceRect.bottom - containerRect.top;
+  
+  // Check if this is an ability - if so, find the source creature
+  const isAbility = targetLines[0]?.classList.contains('ability');
+  let startX, startY;
+  
+  if (isAbility && state.game?.pendingAction?.card?.instanceId) {
+    // Find the creature card that owns this ability
+    const creatureId = state.game.pendingAction.card.instanceId;
+    const sourceCreature = root.querySelector(`[data-card="${creatureId}"][data-controller="0"]`);
+    if (sourceCreature) {
+      const sourceRect = sourceCreature.getBoundingClientRect();
+      startX = sourceRect.left + sourceRect.width / 2 - containerRect.left;
+      startY = sourceRect.top + sourceRect.height / 2 - containerRect.top;
+    } else {
+      return; // Can't find source creature, skip positioning
+    }
+  } else {
+    // Default to active spell panel for spells
+    const activePanel = root.querySelector('.active-spell-panel');
+    if (!activePanel) return;
+    const sourceRect = activePanel.getBoundingClientRect();
+    startX = sourceRect.left + sourceRect.width / 2 - containerRect.left;
+    startY = sourceRect.bottom - containerRect.top;
+  }
 
   targetLines.forEach((line) => {
     const targetId = line.dataset.target;

@@ -1130,6 +1130,10 @@ input {
   color: #d5ddff;
 }
 
+.ability-row { display: flex; }
+.ability-button .ability-name { font-weight: 700; color: #cbd5e1; font-size: 0.75rem; }
+.ability-button .ability-label { font-weight: 600; color: #e5e7eb; font-size: 0.72rem; text-align: left; }
+
 /* Status chips */
 .status-chips {
   display: flex;
@@ -1219,6 +1223,64 @@ input {
 
 .ability {
   margin-top: 0.2rem;
+}
+
+/* Unified ability button styling */
+.ability-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  font-weight: 700;
+  color: #e5e7eb;
+}
+
+.ability-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.ability-status {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin-top: 0.3rem;
+  text-align: center;
+}
+
+.ability-button.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.creature-ability-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  justify-content: center;
+}
+
+.card-ability-preview {
+  font-size: 0.68rem;
+  color: #9ca3af;
+  margin: 0.2rem 0 0 0;
+  font-style: italic;
+}
+
+.ability-button .mana-gem.small {
+  width: 18px;
+  height: 18px;
+  font-size: 0.7rem;
+}
+
+.ability-button:disabled,
+.creature-card.frozen .ability-button,
+.creature-card.summoning .ability-button {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .mini {
@@ -1876,6 +1938,13 @@ button.disabled {
   stroke-linecap: round;
   filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.75));
   marker-end: url(#arrow-blue);
+}
+
+/* Green targeting lines for abilities */
+.target-line.ability {
+  stroke: #22c55e !important;
+  filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.75)) !important;
+  marker-end: url(#arrow-green) !important;
 }
 
 .target-line.preview {

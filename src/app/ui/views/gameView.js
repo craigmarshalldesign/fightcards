@@ -234,6 +234,19 @@ function renderLogSection({ title, className = '', entries = [], expanded = fals
 
 function renderActiveSpellSlot(game) {
   const pending = game.pendingAction;
+  // Skip rendering abilities in the active slot - they handle their own UI
+  if (pending && pending.type === 'ability') {
+    return `
+      <section class="active-spell-panel empty">
+        <div class="panel-header">
+          <h3>Active Spell Slot</h3>
+        </div>
+        <div class="active-spell-body">
+          <p class="active-placeholder-text">Spells will appear here while they resolve.</p>
+        </div>
+      </section>
+    `;
+  }
   const card = pending?.card;
   const requirement = pending?.requirements?.[pending.requirementIndex];
   let instruction = 'No active spell.';
@@ -451,16 +464,24 @@ function renderCreature(creature, controllerIndex, game) {
     classes.push('fading-out');
   }
   const abilityButtons = [];
-  if (
-    controllerIndex === 0 &&
-    creature.activated &&
-    !creature.activatedThisTurn &&
-    (game.phase === 'main1' || game.phase === 'main2') &&
-    game.currentPlayer === controllerIndex &&
-    game.players[controllerIndex].availableMana >= creature.activated.cost
-  ) {
+  // Always show ability button if creature has an activated ability
+  if (creature.activated) {
+    const canActivate = controllerIndex === 0 && // Only player can activate abilities
+                       !creature.activatedThisTurn && 
+                       (!game.pendingAction || (game.pendingAction.type === 'ability' && game.pendingAction.card?.instanceId === creature.instanceId)) &&
+                       game.players[controllerIndex].availableMana >= creature.activated.cost &&
+                       (game.phase === 'main1' || game.phase === 'main2') &&
+                       game.currentPlayer === controllerIndex;
+    const isThisAbilityActive = game.pendingAction && game.pendingAction.card?.instanceId === creature.instanceId && game.pendingAction.type === 'ability';
+    const abilityName = creature.activated.name ? `${escapeHtml(creature.activated.name)}:` : 'Ability:';
     abilityButtons.push(
-      `<button class="mini" data-action="activate" data-creature="${creature.instanceId}">${creature.activated.description}</button>`,
+      `<div class="ability-row">
+         <button class="ability-button ${!canActivate ? 'disabled' : ''}" data-action="activate" data-creature="${creature.instanceId}" ${!canActivate ? 'disabled' : ''}>
+           <span class="mana-gem small">${creature.activated.cost ?? 0}</span>
+           <span class="ability-name">${abilityName}</span>
+           <span class="ability-label">${escapeHtml(creature.activated.description)}</span>
+         </button>
+       </div>`,
     );
   }
   const damage = creature.damageMarked || 0;
@@ -470,6 +491,41 @@ function renderCreature(creature, controllerIndex, game) {
     toughnessClasses.push('damaged');
   }
   const damageChip = damage > 0 ? `<span class="damage-chip">-${damage}</span>` : '';
+  // Add ability actions below stats if this creature has an active ability (only for player creatures)
+  const isThisAbilityActive = controllerIndex === 0 && game.pendingAction && game.pendingAction.card?.instanceId === creature.instanceId && game.pendingAction.type === 'ability';
+  const abilityActions = isThisAbilityActive ? `
+    <div class="creature-ability-actions">
+      <button class="mini cancel" data-action="cancel-action">Cancel</button>
+      ${(() => {
+        const req = game.pendingAction.requirements?.[game.pendingAction.requirementIndex];
+        const selectedCount = game.pendingAction.selectedTargets?.length || 0;
+        const requiredCount = req?.count || 0;
+        const hasRequiredTargets = !req || selectedCount >= requiredCount;
+        
+        if (game.pendingAction.awaitingConfirmation || hasRequiredTargets) {
+          return '<button class="mini" data-action="confirm-pending">Choose</button>';
+        } else {
+          return '<button class="mini disabled" disabled>Choose</button>';
+        }
+      })()}
+    </div>
+    <div class="ability-status">
+      ${(() => {
+        const req = game.pendingAction.requirements?.[game.pendingAction.requirementIndex];
+        const selectedCount = game.pendingAction.selectedTargets?.length || 0;
+        const requiredCount = req?.count || 0;
+        
+        if (!req) {
+          return 'Ready to activate';
+        } else if (selectedCount === 0) {
+          return `Select ${requiredCount} target${requiredCount > 1 ? 's' : ''}`;
+        } else {
+          return `${selectedCount}/${requiredCount} selected`;
+        }
+      })()}
+    </div>
+  ` : '';
+
   return `
     <div class="${classes.join(' ')}" data-card="${creature.instanceId}" data-controller="${controllerIndex}">
       <div class="card-header">
@@ -481,10 +537,11 @@ function renderCreature(creature, controllerIndex, game) {
         ${creature.passive ? `<p class="card-passive">${creature.passive.description}</p>` : ''}
         ${renderStatusChips(creature, controllerIndex, game)}
       </div>
+      ${abilityButtons.length ? `<div class="ability">${abilityButtons.join('')}</div>` : ''}
+      ${abilityActions}
       <div class="card-footer">
         <span class="stat attack">${stats.attack}</span>/<span class="${toughnessClasses.join(' ')}">${currentToughness}</span>${damageChip}
       </div>
-      ${abilityButtons.length ? `<div class="ability">${abilityButtons.join('')}</div>` : ''}
     </div>
   `;
 }
@@ -503,6 +560,11 @@ function renderCard(card, isHand, game) {
   }
   const baseAttack = card.baseAttack ?? card.attack ?? 0;
   const baseToughness = card.baseToughness ?? card.toughness ?? 0;
+  
+  // Show activated abilities in small text for hand/graveyard/preview cards
+  const activatedAbilityText = card.activated ? 
+    `<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>` : '';
+  
   return `
     <div class="${classes.join(' ')}" data-card="${card.instanceId}" data-location="hand">
       <div class="card-header">
@@ -512,6 +574,7 @@ function renderCard(card, isHand, game) {
       <div class="card-subtitle">${renderTypeBadge(card)}</div>
       <div class="card-body">
         <p class="card-text">${card.text || ''}</p>
+        ${activatedAbilityText}
         ${card.type === 'creature' ? renderStatusChips(card, undefined, game) : ''}
       </div>
       ${card.type === 'creature' ? `<div class="card-footer"><span class="stat attack">${baseAttack}</span>/<span class="stat toughness">${baseToughness}</span></div>` : ''}
@@ -525,12 +588,13 @@ function renderPhaseControls(game, hideSkipCombat = false) {
     return `<p class="info">AI is taking its turn...</p>`;
   }
   const buttons = [];
+  const disabledAttr = game.pendingAction ? ' disabled' : '';
   if (game.phase === 'main1') {
-    buttons.push('<button data-action="end-phase">Go to Combat</button>');
+    buttons.push(`<button data-action="end-phase"${disabledAttr}>Go to Combat</button>`);
   } else if (game.phase === 'combat' && !hideSkipCombat) {
-    buttons.push('<button data-action="skip-combat">Skip Combat</button>');
+    buttons.push(`<button data-action="skip-combat"${disabledAttr}>Skip Combat</button>`);
   } else if (game.phase === 'main2') {
-    buttons.push('<button data-action="end-phase">End Turn</button>');
+    buttons.push(`<button data-action="end-phase"${disabledAttr}>End Turn</button>`);
   }
   return buttons.join('');
 }
@@ -651,7 +715,8 @@ function renderTargetLines(game) {
       }
       if (!targetId) return '';
       const variantClass = variant ? ` ${variant}` : '';
-      return `<line class="target-line${variantClass}" data-target="${targetId}"${controllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
+      const abilityClass = pending.type === 'ability' ? ' ability' : '';
+      return `<line class="target-line${variantClass}${abilityClass}" data-target="${targetId}"${controllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
     })
     .filter(Boolean)
     .join('');
@@ -663,6 +728,9 @@ function renderTargetLines(game) {
       <defs>
         <marker id="arrow-blue" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto">
           <path d="M0,0 L8,4 L0,8 Z" fill="#38bdf8" />
+        </marker>
+        <marker id="arrow-green" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#22c55e" />
         </marker>
       </defs>
       ${lines}
@@ -812,6 +880,9 @@ function renderPreviewCard(card) {
   const bodyParts = [];
   if (card.text) {
     bodyParts.push(`<p class="card-text">${formatText(card.text)}</p>`);
+  }
+  if (card.activated) {
+    bodyParts.push(`<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`);
   }
   if (card.passive?.description) {
     bodyParts.push(`<p class="card-passive">${formatText(card.passive.description)}</p>`);

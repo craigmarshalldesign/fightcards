@@ -468,6 +468,8 @@ export function confirmPendingAction(pendingOverride) {
     resolveTriggeredPending(pending);
   } else if (pending.type === 'summon') {
     resolvePendingSummon(pending);
+  } else if (pending.type === 'ability') {
+    executeAbility(pending);
   }
 }
 
@@ -566,6 +568,50 @@ function resolvePendingSummon(pending) {
   game.pendingAction = null;
   requestRender();
   checkForWinner();
+  continueAIIfNeeded();
+}
+
+export function executeAbility(pending) {
+  const game = state.game;
+  const player = game.players[pending.controller];
+  const creature = pending.card;
+  
+  // Now spend the mana and mark ability as used
+  spendMana(player, creature.activated.cost ?? 0);
+  creature.activatedThisTurn = true;
+  
+  // Build log message for ability activation
+  const targetSegments = [];
+  if (pending?.chosenTargets) {
+    const effectIndexes = Object.keys(pending.chosenTargets).map((k) => Number.parseInt(k, 10)).sort((a, b) => a - b);
+    for (const idx of effectIndexes) {
+      const targets = pending.chosenTargets[idx] || [];
+      if (!targets.length) continue;
+      const parts = [textSegment(' on ')];
+      targets.forEach((t, i) => {
+        if (i > 0) {
+          parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
+        }
+        if (t.type === 'player') {
+          const tgtPlayer = game.players[t.controller];
+          parts.push(playerSegment(tgtPlayer));
+        } else if (t.creature) {
+          parts.push(cardSegment(t.creature));
+        }
+      });
+      targetSegments.push(...parts);
+      break; // Only show first effect's targets for simplicity
+    }
+  }
+  
+  addLog([playerSegment(player), textSegment(' activates '), cardSegment(creature), textSegment(`'s ${creature.activated.name || 'ability'}`), ...targetSegments, textSegment('.')]);
+  
+  // Clear timers and resolve effects
+  cleanupPending(pending);
+  resolveEffects(pending.effects, pending);
+  game.pendingAction = null;
+  checkForDeadCreatures();
+  requestRender();
   continueAIIfNeeded();
 }
 
@@ -1008,24 +1054,49 @@ export function handlePassive(card, controllerIndex, trigger) {
 export function activateCreatureAbility(creatureId) {
   const game = state.game;
   const creature = game.players[0].battlefield.find((c) => c.instanceId === creatureId);
+  // Block when any pending action exists (spell, summon, trigger, or ability)
+  if (game.pendingAction) return;
   if (!creature || !creature.activated || creature.activatedThisTurn) return;
   if (game.players[0].availableMana < creature.activated.cost) return;
-  spendMana(game.players[0], creature.activated.cost);
-  creature.activatedThisTurn = true;
+  // Don't spend mana yet - only spend when confirmed
   const effect = creature.activated.effect;
-  const pending = { controller: 0, card: creature, requirements: [], requirementIndex: 0, selectedTargets: [], chosenTargets: {} };
-  if (effect.type === 'selfBuff') {
-    applyPermanentBuff(creature, effect.attack, effect.toughness);
+  // Treat activated abilities like spells with a pending flow so target lines + confirm/cancel work
+  const pending = {
+    type: 'ability',
+    controller: 0,
+    card: creature,
+    effects: [effect],
+    requirements: buildEffectRequirements([effect]),
+    requirementIndex: 0,
+    selectedTargets: [],
+    chosenTargets: {},
+    cancellable: true,
+    awaitingConfirmation: false,
+    isAI: false,
+  };
+
+  // If there are no requirements, immediately resolve like a spell but keep UX consistent
+  if (!pending.requirements.length) {
+    resolveEffects([effect], { controller: 0, card: creature, requirements: [], requirementIndex: 0, selectedTargets: [], chosenTargets: {} });
     requestRender();
     return;
   }
-  if (effect.type === 'temporaryBuff' || effect.type === 'buff') {
-    const target = game.players[0].battlefield.find((c) => c.type === 'creature');
-    if (target) {
-      pending.chosenTargets[0] = [{ creature: target, controller: 0 }];
+
+  // If requirements have auto-targets and require no choice, prefill chosen targets
+  pending.requirements.forEach((req) => {
+    const valid = getValidTargetsForRequirement(req, 0, creature);
+    const requiredCount = req.count ?? 1;
+    if (valid.length === 0) {
+      pending.chosenTargets[req.effectIndex] = [];
+      return;
     }
-  }
-  resolveEffects([effect], pending);
+    const auto = autoSelectTargetsForRequirement(req, 0, creature);
+    if (auto.length && auto.length <= requiredCount) {
+      pending.chosenTargets[req.effectIndex] = auto.slice(0, requiredCount);
+    }
+  });
+
+  state.game.pendingAction = pending;
   requestRender();
 }
 

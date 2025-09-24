@@ -20,7 +20,14 @@ export function renderGraveyardModal(game) {
             card.type === 'creature'
               ? `<div class="card-footer"><span class="stat attack">${baseAttack}</span>/<span class="stat toughness">${baseToughness}</span></div>`
               : '';
-          const body = card.text ? `<p class="card-text">${escapeHtml(card.text)}</p>` : '';
+          const bodyParts = [];
+          if (card.text) {
+            bodyParts.push(`<p class="card-text">${escapeHtml(card.text)}</p>`);
+          }
+          if (card.activated) {
+            bodyParts.push(`<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`);
+          }
+          const body = bodyParts.join('');
           return `
             <article class="card ${typeClass} ${colorClass}">
               <div class="card-header">
