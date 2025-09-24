@@ -125,6 +125,8 @@ export function attachEventHandlers(root) {
 function bindGameEvents(root) {
   root.querySelectorAll('[data-location="hand"]').forEach((cardEl) => {
     cardEl.addEventListener('click', () => {
+      // If there is a pending action, ignore hand clicks entirely
+      if (state.game?.pendingAction) return;
       const cardId = cardEl.getAttribute('data-card');
       handleHandCardClick(cardId);
     });
@@ -132,6 +134,7 @@ function bindGameEvents(root) {
 
   root.querySelectorAll('.creature-card').forEach((cardEl) => {
     cardEl.addEventListener('click', () => {
+      // Allow creature clicks only for targeting or combat/blocking interactions
       const cardId = cardEl.getAttribute('data-card');
       const controller = Number(cardEl.getAttribute('data-controller'));
       handleCreatureClick(cardId, controller);

@@ -50,12 +50,12 @@ export const greenSpells = [
   },
   {
     id: 'green_spell_6',
-    name: 'Root Snare',
+    name: 'Hidden Ambush',
     type: 'spell',
     color: 'green',
     cost: 2,
-    text: 'Prevent all combat damage to you this turn.',
-    effects: [{ type: 'preventCombatDamage' }],
+    text: 'Prevent combat damage to your attacking creatures this turn.',
+    effects: [{ type: 'preventDamageToAttackers' }],
   },
   {
     id: 'green_spell_7',

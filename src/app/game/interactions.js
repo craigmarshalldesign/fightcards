@@ -14,6 +14,12 @@ import { toggleAttacker, selectBlocker, assignBlockerToAttacker } from './core.j
 export function handleHandCardClick(cardId) {
   const game = state.game;
   if (!game) return;
+  // When a spell/ability is pending, ignore hand clicks entirely
+  if (game.pendingAction) {
+    addLog('Resolve the current action first.');
+    requestRender();
+    return;
+  }
   const player = game.players[0];
   const card = player.hand.find((c) => c.instanceId === cardId);
   if (!card) return;

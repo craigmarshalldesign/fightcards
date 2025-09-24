@@ -148,6 +148,14 @@ function scheduleAIPendingResolution(pending) {
     if (state.game.pendingAction !== pending) return;
     pending.previewTargets = [];
     chosenTargets.forEach((target) => selectTargetForPending(target));
+    // If the effect allows fewer than the desired number of targets (allowLess),
+    // the AI should finalize after selecting what is available instead of waiting
+    // to hit the required count.
+    const currentReq = pending.requirements?.[pending.requirementIndex];
+    const requiredCount = currentReq?.count ?? 1;
+    if (currentReq?.allowLess && (pending.selectedTargets?.length ?? 0) < requiredCount) {
+      finalizeCurrentRequirement();
+    }
   }, AI_PENDING_DELAY);
   registerPendingTimer(pending, timer);
 }
@@ -225,16 +233,28 @@ export function playCreature(playerIndex, card) {
   const requiresSelection = Boolean(onEnterEffect && effectRequiresChoice(onEnterEffect));
 
   if (requiresSelection) {
+    // Build requirements and mark as confirmable when no valid targets exist
+    const rawRequirements = onEnterEffect ? buildEffectRequirements([onEnterEffect]) : [];
+    const requirements = rawRequirements.map((req) => {
+      const validTargets = getValidTargetsForRequirement(req, playerIndex, card);
+      if (validTargets.length === 0) {
+        // Allow confirming with 0 selections so the summon can complete
+        return { ...req, allowLess: true, noValidTargets: true };
+      }
+      return req;
+    });
+
     const pending = {
       type: 'summon',
       controller: playerIndex,
       card,
       effects: onEnterEffect ? [onEnterEffect] : [],
-      requirements: onEnterEffect ? buildEffectRequirements([onEnterEffect]) : [],
+      requirements,
       requirementIndex: 0,
       selectedTargets: [],
       chosenTargets: {},
-      cancellable: false,
+      // Let players cancel a summon that requires targeting
+      cancellable: true,
       awaitingConfirmation: false,
       isAI: Boolean(player.isAI),
     };
@@ -255,7 +275,17 @@ export function playCreature(playerIndex, card) {
 export function prepareSpell(playerIndex, card, options = {}) {
   const game = state.game;
   const player = game.players[playerIndex];
-  const requirements = computeRequirements(card);
+  // Compute requirements and allow confirmation with zero targets when none are valid
+  const baseRequirements = computeRequirements(card);
+  const requirements = baseRequirements.map((req) => {
+    const validTargets = getValidTargetsForRequirement(req, playerIndex, card);
+    if (validTargets.length === 0) {
+      return { ...req, allowLess: true, noValidTargets: true };
+    }
+    return req;
+  });
+  // Visually move the card out of the hand while pending
+  removeFromHand(player, card.instanceId);
   const pending = {
     type: 'spell',
     controller: playerIndex,
@@ -268,6 +298,7 @@ export function prepareSpell(playerIndex, card, options = {}) {
     cancellable: true,
     awaitingConfirmation: false,
     isAI: Boolean(player.isAI),
+    removedFromHand: true,
   };
   if (options.aiChosenTargets) {
     pending.aiChosenTargets = options.aiChosenTargets;
@@ -400,7 +431,9 @@ export function finalizeCurrentRequirement() {
   const requirement = pending.requirements[pending.requirementIndex];
   const requiredCount = requirement?.count ?? 1;
   if (!requirement) return;
-  if (!requirement.allowLess && pending.selectedTargets.length < requiredCount) {
+  // If there are no valid targets for this requirement, allow finalizing with 0
+  const noValidTargets = getValidTargetsForRequirement(requirement, pending.controller, pending.card).length === 0;
+  if (!noValidTargets && !requirement.allowLess && pending.selectedTargets.length < requiredCount) {
     return;
   }
   pending.chosenTargets[requirement.effectIndex] = pending.selectedTargets.map((target) => ({ ...target }));
@@ -445,6 +478,20 @@ export function cancelPendingAction() {
     return;
   }
   const { pendingAction } = game;
+  // Refund resources for cancellable actions
+  if (pendingAction.type === 'summon' && pendingAction.card) {
+    const player = game.players[pendingAction.controller];
+    // Return card to hand and refund mana
+    player.hand.push(pendingAction.card);
+    sortHand(player);
+    const cost = pendingAction.card.cost ?? 0;
+    player.availableMana = Math.min(player.maxMana, player.availableMana + cost);
+  }
+  if (pendingAction.type === 'spell' && pendingAction.card && pendingAction.removedFromHand) {
+    const player = game.players[pendingAction.controller];
+    player.hand.push(pendingAction.card);
+    sortHand(player);
+  }
   cleanupPending(pendingAction);
   game.pendingAction = null;
   if (pendingAction.type === 'spell') {
@@ -462,7 +509,42 @@ export function executeSpell(pending) {
   const player = game.players[pending.controller];
   removeFromHand(player, pending.card.instanceId);
   spendMana(player, pending.card.cost ?? 0);
-  addLog([playerSegment(player), textSegment(' casts '), cardSegment(pending.card), textSegment('.')], undefined, 'spell');
+  // Build a readable target list for the log if any targets were chosen
+  const buildTargetSegments = () => {
+    if (!pending?.chosenTargets) return [];
+    const effectIndexes = Object.keys(pending.chosenTargets).map((k) => Number.parseInt(k, 10)).sort((a, b) => a - b);
+    for (const idx of effectIndexes) {
+      const targets = pending.chosenTargets[idx] || [];
+      if (!targets.length) continue;
+      const parts = [textSegment(' on ')];
+      targets.forEach((t, i) => {
+        if (i > 0) {
+          parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
+        }
+        if (t.type === 'player') {
+          const tgtPlayer = game.players[t.controller];
+          parts.push(playerSegment(tgtPlayer));
+        } else if (t.creature) {
+          parts.push(cardSegment(t.creature));
+        }
+      });
+      return parts;
+    }
+    return [];
+  };
+
+  const targetSegments = buildTargetSegments();
+  addLog(
+    [
+      playerSegment(player),
+      textSegment(' casts '),
+      cardSegment(pending.card),
+      ...targetSegments,
+      textSegment('.'),
+    ],
+    undefined,
+    'spell',
+  );
   resolveEffects(pending.effects, pending);
   player.graveyard.push(pending.card);
   cleanupPending(pending);
@@ -488,6 +570,9 @@ function resolvePendingSummon(pending) {
 }
 
 export function resolveEffects(effects, pending) {
+  // Always resolve effects in order. Each effect uses only its own chosen targets;
+  // if a targeted effect has no valid targets, it simply does nothing while
+  // other effects (like draw) still resolve.
   effects.forEach((effect, idx) => {
     const targets = pending.chosenTargets[idx] || [];
     applyEffect(effect, pending.controller, targets, pending.card);
@@ -604,6 +689,11 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     }
     case 'freeze': {
       targets.forEach((target) => freezeCreature(target.creature));
+      break;
+    }
+    case 'preventDamageToAttackers': {
+      game.preventDamageToAttackersFor = controllerIndex;
+      addLog([playerSegment(controller), textSegment(' protects attacking creatures this turn.')]);
       break;
     }
     case 'damageAttackers': {
@@ -948,10 +1038,10 @@ export function beginTurn(playerIndex) {
   player.battlefield.forEach((creature) => {
     if (creature.frozenTurns) {
       creature.frozenTurns -= 1;
-      creature.summoningSickness = true;
-    } else {
-      creature.summoningSickness = false;
     }
+    // Summoning sickness resets at the start of the controller's turn regardless of freeze
+    // (frozen status itself prevents attacking/blocking elsewhere)
+    creature.summoningSickness = false;
     creature.activatedThisTurn = false;
     if (creature.temporaryHaste) {
       creature.temporaryHaste = false;
@@ -961,6 +1051,8 @@ export function beginTurn(playerIndex) {
   addLog([playerSegment(player), textSegment(` starts their turn with ${player.availableMana} mana.`)]);
   game.phase = 'main1';
   game.preventCombatDamageFor = null;
+  // Also clear protection to attackers at the start of each turn
+  game.preventDamageToAttackersFor = null;
 }
 
 export function advancePhase() {

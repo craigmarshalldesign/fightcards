@@ -373,6 +373,19 @@ input {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.active-actions .cancel {
+  background: rgba(255, 255, 255, 0.12);
+  width: auto;
+}
+
+.active-actions .confirm {
+  background: linear-gradient(135deg, #5560ff, #a855f7);
+  padding: 0.6rem 1rem;
+  font-weight: 700;
+  width: auto;
 }
 
 .log-player {
@@ -564,6 +577,24 @@ input {
   box-shadow: 0 0 12px rgba(123, 227, 255, 0.3);
 }
 
+/* Not playable due to mana/phase/turn */
+.hand-cards .card:not(.playable) {
+  opacity: 0.7;
+}
+
+/* Stronger dim when a pending action disables the hand entirely */
+.card.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+  filter: grayscale(20%);
+}
+
+.card.disabled {
+  pointer-events: none;
+  opacity: 0.6;
+  filter: grayscale(20%);
+}
+
 .card.selected {
   border-color: #ffd166;
 }
@@ -647,7 +678,50 @@ input {
   min-width: 1.5rem;
   text-align: center;
   font-weight: 700;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 0.2rem;
 }
+
+/* Mana gem behind numbers */
+.mana-gem {
+  width: 22px;
+  height: 22px;
+  position: relative;
+  z-index: 0; /* establish stacking context for inner text above background */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+
+.mana-gem::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+  border: 1px solid rgba(147, 197, 253, 0.6);
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.6), inset 0 0 6px rgba(147, 197, 253, 0.35);
+  border-radius: 2px;
+  z-index: -1; /* keep gem behind the number */
+}
+
+/* Larger gem in Active Spell Slot cost display */
+.active-card-title .cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.active-card-title .cost::before { content: none; }
 
 .card-name {
   flex: 1;
@@ -658,10 +732,94 @@ input {
   line-height: 1.2;
 }
 
+.card-subtitle {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.type-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.type-badge.type-creature {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.type-badge.type-spell {
+  color: #a78bfa;
+  border-color: rgba(167, 139, 250, 0.45);
+  background: rgba(167, 139, 250, 0.12);
+}
+
 .card-body {
   flex: 1;
   font-size: 0.78rem;
   color: #d5ddff;
+}
+
+/* Status chips */
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.status-chip.haste {
+  color: #fb923c;
+  background: rgba(251, 146, 60, 0.15);
+  border-color: rgba(251, 146, 60, 0.4);
+}
+
+.status-chip.shimmer {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.15);
+  border-color: rgba(167, 139, 250, 0.45);
+}
+
+.status-chip.frozen {
+  color: #93c5fd;
+  background: rgba(147, 197, 253, 0.15);
+  border-color: rgba(147, 197, 253, 0.45);
+}
+
+.status-chip.sickness {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.14);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.status-chip.buff {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+  border-color: rgba(52, 211, 153, 0.45);
+}
+
+.status-chip.debuff {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.45);
 }
 
 .card-passive {
@@ -1259,6 +1417,7 @@ button.disabled {
   stroke-width: 3px;
   stroke-linecap: round;
   filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.75));
+  marker-end: url(#arrow-blue);
 }
 
 .target-line.preview {

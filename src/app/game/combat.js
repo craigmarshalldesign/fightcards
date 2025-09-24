@@ -124,7 +124,9 @@ export function prepareBlocks() {
 
 export function aiAssignBlocks() {
   const game = state.game;
-  const defenders = game.players[1].battlefield.filter((c) => c.type === 'creature');
+  const defenders = game.players[1]
+    .battlefield
+    .filter((c) => c.type === 'creature' && !(c.frozenTurns > 0));
   game.blocking.attackers.forEach((attacker) => {
     if (hasShimmer(attacker.creature)) {
       return;
@@ -230,7 +232,9 @@ export function resolveCombat() {
       ]);
     }
     dealDamageToCreature(blocker, defendingIndex, attackerStats.attack);
-    if (blockerStats.attack > 0) {
+    // If protection is active for the attacker controller, prevent blocker damage to attackers
+    const preventBlockerDamage = game.preventDamageToAttackersFor === attacker.controller;
+    if (!preventBlockerDamage && blockerStats.attack > 0) {
       addLog([
         cardSegment(blocker),
         textSegment(' deals '),
@@ -240,7 +244,7 @@ export function resolveCombat() {
         textSegment('.'),
       ]);
     }
-    dealDamageToCreature(attacker.creature, attacker.controller, blockerStats.attack);
+    dealDamageToCreature(attacker.creature, attacker.controller, preventBlockerDamage ? 0 : blockerStats.attack);
   });
   checkForDeadCreatures();
   game.combat = null;
@@ -264,6 +268,8 @@ export function describePhaseDetailed(game) {
 
 export function canSelectBlocker(creature, controllerIndex, game) {
   if (!game.blocking) return false;
+  // Frozen creatures cannot block
+  if (creature.frozenTurns > 0) return false;
   // Creatures can block regardless of summoning sickness
   if (game.currentPlayer === 0 && controllerIndex === 0) {
     return true;

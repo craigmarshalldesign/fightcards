@@ -40,6 +40,9 @@ export function createCardInstance(card) {
     buffs: [],
     baseAttack: copy.attack ?? 0,
     baseToughness: copy.toughness ?? 0,
+    originalAttack: copy.attack ?? 0,
+    originalToughness: copy.toughness ?? 0,
+    originalAbilities: copy.abilities ? JSON.parse(JSON.stringify(copy.abilities)) : {},
   };
 }
 

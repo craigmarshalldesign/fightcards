@@ -9,10 +9,61 @@ import {
   isAttackingCreature,
   canPlayCard,
 } from '../../game/core.js';
-import { getCreatureStats } from '../../game/creatures.js';
+import { getCreatureStats, hasShimmer } from '../../game/creatures.js';
 
 function getCardColorClass(card) {
   return `card-color-${card?.color ?? 'neutral'}`;
+}
+
+function renderTypeBadge(card) {
+  const label = (card?.type || '').toString().toUpperCase();
+  const variant = card?.type === 'creature' ? 'type-creature' : 'type-spell';
+  return `<span class="type-badge ${variant}">${escapeHtml(label || 'CARD')}</span>`;
+}
+
+// Build status chips for a card.
+// controllerIndex is required for battlefield creatures (to compute global buffs),
+// but can be omitted for hand/preview contexts.
+function renderStatusChips(card, controllerIndex, game) {
+  if (!card || card.type !== 'creature') return '';
+
+  const chips = [];
+  const inBattlefield = Number.isInteger(controllerIndex);
+
+  const abilities = card.abilities || {};
+  const hasHaste = Boolean(abilities.haste || (inBattlefield && card.temporaryHaste));
+  const shimmerActive = inBattlefield ? hasShimmer(card) : Boolean(abilities.shimmer);
+
+  if (hasHaste) chips.push({ label: 'Haste', variant: 'haste' });
+  if (shimmerActive) chips.push({ label: 'Shimmer', variant: 'shimmer' });
+  if (inBattlefield && card.frozenTurns) chips.push({ label: 'Frozen', variant: 'frozen' });
+  // Show Summoning only during the controller's own turn to avoid implying it blocks
+  if (inBattlefield && game && game.currentPlayer === controllerIndex && card.summoningSickness && !hasHaste) {
+    chips.push({ label: 'Summoning', variant: 'sickness' });
+  }
+
+  // Show net permanent/temporary power/toughness modification (ignores damage)
+  if (inBattlefield) {
+    const stats = getCreatureStats(card, controllerIndex, game);
+    const baseA = card.baseAttack ?? card.attack ?? 0;
+    const baseT = card.baseToughness ?? card.toughness ?? 0;
+    const dA = stats.attack - baseA;
+    const dT = stats.toughness - baseT;
+    if (dA !== 0 || dT !== 0) {
+      const signA = dA >= 0 ? '+' : '';
+      const signT = dT >= 0 ? '+' : '';
+      const label = `${dA !== 0 ? signA + dA : '+0'}/${dT !== 0 ? signT + dT : '+0'}`;
+      chips.push({ label, variant: dA >= 0 && dT >= 0 ? 'buff' : 'debuff' });
+    }
+  } else {
+    // In hand/preview: surface innate stat keywords (no deltas available)
+    // Nothing extra needed here beyond ability chips above.
+  }
+
+  if (chips.length === 0) return '';
+  return `<div class="status-chips">${chips
+    .map((c) => `<span class="status-chip ${sanitizeClass(c.variant)}">${escapeHtml(c.label)}</span>`)
+    .join('')}</div>`;
 }
 
 export function renderGame() {
@@ -132,7 +183,6 @@ function renderLogSection({ title, className = '', entries = [], expanded = fals
 
 function renderActiveSpellSlot(game) {
   const pending = game.pendingAction;
-  const controller = pending ? game.players[pending.controller] : null;
   const card = pending?.card;
   const requirement = pending?.requirements?.[pending.requirementIndex];
   let instruction = 'No active spell.';
@@ -160,23 +210,22 @@ function renderActiveSpellSlot(game) {
       ? `<div class="target-progress">${confirmedCount} target${confirmedCount === 1 ? '' : 's'} ready</div>`
       : '';
   const confirmButton = pending?.awaitingConfirmation
-    ? '<button class="mini" data-action="confirm-pending">Choose</button>'
+    ? '<button data-action="confirm-pending" class="confirm">Choose</button>'
     : requirement?.allowLess
       ? `<button class="mini" data-action="confirm-targets">Confirm Targets (${selectedCount}/${requiredCount})</button>`
       : '';
   const cancelButton = pending && pending.cancellable !== false
-    ? '<button class="mini" data-action="cancel-action">Cancel</button>'
+    ? '<button class="mini cancel" data-action="cancel-action">Cancel</button>'
     : '';
   const cardText = card?.text ? `<p class="active-card-text">${formatText(card.text)}</p>` : '';
+  const statusChips = card?.type === 'creature' ? renderStatusChips(card, undefined, game) : '';
   const cardMeta = card
     ? `<div class="active-card-title">
         <span class="name">${escapeHtml(card.name ?? 'Unknown Card')}</span>
-        ${card.cost != null ? `<span class="cost">Cost ${card.cost}</span>` : ''}
+        ${card.cost != null ? `<span class="cost"><span class="mana-gem">${escapeHtml(card.cost)}</span></span>` : ''}
       </div>
-      <div class="active-card-meta">
-        <span class="type">${escapeHtml((card.type ?? 'Card').toString())}</span>
-        ${controller ? `<span class="controller">${escapeHtml(controller.name)}</span>` : ''}
-      </div>
+      <div class="active-card-meta">${renderTypeBadge(card)}</div>
+      ${statusChips}
       ${cardText}`
     : '<p class="active-placeholder-text">Spells will appear here while they resolve.</p>';
 
@@ -184,11 +233,6 @@ function renderActiveSpellSlot(game) {
     <section class="active-spell-panel ${pending ? 'has-active' : 'empty'}">
         <div class="panel-header">
           <h3>Active Spell Slot</h3>
-          ${
-            pending
-              ? `<span class="panel-status">${escapeHtml(controller?.name ?? '')}</span>`
-              : '<span class="panel-status idle">Idle</span>'
-          }
         </div>
       <div class="active-spell-body ${card ? `card-color-${sanitizeClass(card.color ?? 'neutral')}` : ''}">
         ${cardMeta}
@@ -197,7 +241,7 @@ function renderActiveSpellSlot(game) {
           ${progressLabel}
         </div>
       </div>
-      ${pending ? `<div class="active-actions">${confirmButton}${cancelButton}</div>` : ''}
+      ${pending ? `<div class="active-actions">${cancelButton}${confirmButton}</div>` : ''}
     </section>
   `;
 }
@@ -364,12 +408,13 @@ function renderCreature(creature, controllerIndex, game) {
   return `
     <div class="${classes.join(' ')}" data-card="${creature.instanceId}" data-controller="${controllerIndex}">
       <div class="card-header">
-        <span class="card-cost">${creature.cost ?? ''}</span>
+        <span class="card-cost"><span class="mana-gem">${creature.cost ?? ''}</span></span>
         <span class="card-name">${creature.name}</span>
       </div>
       <div class="card-body">
         <p class="card-text">${creature.text || ''}</p>
         ${creature.passive ? `<p class="card-passive">${creature.passive.description}</p>` : ''}
+        ${renderStatusChips(creature, controllerIndex, game)}
       </div>
       <div class="card-footer">
         <span class="stat attack">${stats.attack}</span>/<span class="${toughnessClasses.join(' ')}">${currentToughness}</span>${damageChip}
@@ -380,26 +425,31 @@ function renderCreature(creature, controllerIndex, game) {
 }
 
 function renderCard(card, isHand, game) {
-  const playable = isHand && canPlayCard(card, 0, game);
+  const playable = isHand && !game?.pendingAction && canPlayCard(card, 0, game);
   const classes = ['card', card.type === 'creature' ? 'creature-card' : 'spell-card', getCardColorClass(card)];
   if (playable) classes.push('playable');
   const pending = game?.pendingAction;
   if (pending && pending.card.instanceId === card.instanceId) {
     classes.push('selected');
   }
+  // Visually and interactively disable hand cards while a pending action exists
+  if (pending && isHand) {
+    classes.push('disabled');
+  }
   const baseAttack = card.baseAttack ?? card.attack ?? 0;
   const baseToughness = card.baseToughness ?? card.toughness ?? 0;
-  const statsMarkup = card.type === 'creature' ? `<span class="card-stats">${baseAttack}/${baseToughness}</span>` : '';
   return `
     <div class="${classes.join(' ')}" data-card="${card.instanceId}" data-location="hand">
       <div class="card-header">
-        <span class="card-cost">${card.cost ?? ''}</span>
+        <span class="card-cost"><span class="mana-gem">${card.cost ?? ''}</span></span>
         <span class="card-name">${card.name}</span>
       </div>
+      <div class="card-subtitle">${renderTypeBadge(card)}</div>
       <div class="card-body">
         <p class="card-text">${card.text || ''}</p>
-        ${statsMarkup}
+        ${card.type === 'creature' ? renderStatusChips(card, undefined, game) : ''}
       </div>
+      ${card.type === 'creature' ? `<div class="card-footer"><span class="stat attack">${baseAttack}</span>/<span class="stat toughness">${baseToughness}</span></div>` : ''}
     </div>
   `;
 }
@@ -545,6 +595,11 @@ function renderTargetLines(game) {
 
   return `
     <svg class="target-lines-svg" width="100%" height="100%" preserveAspectRatio="none">
+      <defs>
+        <marker id="arrow-blue" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#38bdf8" />
+        </marker>
+      </defs>
       ${lines}
     </svg>
   `;
@@ -702,9 +757,10 @@ function renderPreviewCard(card) {
   return `
     <article class="card preview-card ${typeClass} ${colorClass}">
       <div class="card-header">
-        <span class="card-cost">${escapeHtml(card.cost ?? '')}</span>
+        <span class="card-cost"><span class="mana-gem">${escapeHtml(card.cost ?? '')}</span></span>
         <span class="card-name">${escapeHtml(card.name ?? 'Unknown Card')}</span>
       </div>
+      <div class="card-subtitle">${renderTypeBadge(card)}</div>
       <div class="card-body">
         ${bodyParts.join('')}
       </div>

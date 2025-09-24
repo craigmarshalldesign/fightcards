@@ -173,7 +173,7 @@ function pickTargetsForAI(requirement, controllerIndex) {
     if (requirement.allowPlayers && selections.length < desired) {
       selections.push({ type: 'player', controller: controllerIndex });
     }
-    return selections.slice(0, desired);
+    return selections.slice(0, Math.max(0, Math.min(desired, selections.length)));
   }
   return [];
 }

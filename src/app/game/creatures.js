@@ -47,6 +47,25 @@ export function grantShimmer(creature, duration = 'turn') {
 export function bounceCreature(creature, controllerIndex) {
   const player = state.game.players[controllerIndex];
   removeFromBattlefield(player, creature.instanceId);
+  // Reset transient state when a creature leaves the battlefield
+  creature.damageMarked = 0;
+  creature.buffs = [];
+  creature.temporaryHaste = false;
+  creature.frozenTurns = 0;
+  // Restore base stats/abilities to printed values if available
+  if (typeof creature.originalAttack === 'number') {
+    creature.baseAttack = creature.originalAttack;
+  } else {
+    creature.baseAttack = creature.attack ?? 0;
+  }
+  if (typeof creature.originalToughness === 'number') {
+    creature.baseToughness = creature.originalToughness;
+  } else {
+    creature.baseToughness = creature.toughness ?? 0;
+  }
+  if (creature.originalAbilities) {
+    creature.abilities = JSON.parse(JSON.stringify(creature.originalAbilities));
+  }
   creature.summoningSickness = !creature.abilities?.haste;
   player.hand.push(creature);
   sortHand(player);
@@ -63,8 +82,8 @@ export function bounceStrongestCreatures(controllerIndex, amount) {
 }
 
 export function freezeCreature(creature) {
-  creature.frozenTurns = Math.max(1, creature.frozenTurns || 0);
-  creature.summoningSickness = true;
+  // Freeze should last through the rest of this turn and the opponent's next turn
+  creature.frozenTurns = Math.max(2, creature.frozenTurns || 0);
   addLog([cardSegment(creature), textSegment(' is frozen.')]);
 }
 
@@ -134,7 +153,24 @@ export function dealDamageToCreature(creature, controllerIndex, amount) {
 export function destroyCreature(creature, controllerIndex) {
   const player = state.game.players[controllerIndex];
   removeFromBattlefield(player, creature.instanceId);
+  // Reset transient and modified state when a creature dies
   creature.damageMarked = 0;
+  creature.buffs = [];
+  creature.temporaryHaste = false;
+  creature.frozenTurns = 0;
+  if (typeof creature.originalAttack === 'number') {
+    creature.baseAttack = creature.originalAttack;
+  } else {
+    creature.baseAttack = creature.attack ?? 0;
+  }
+  if (typeof creature.originalToughness === 'number') {
+    creature.baseToughness = creature.originalToughness;
+  } else {
+    creature.baseToughness = creature.toughness ?? 0;
+  }
+  if (creature.originalAbilities) {
+    creature.abilities = JSON.parse(JSON.stringify(creature.originalAbilities));
+  }
   delete creature._dying;
   delete creature._destroyScheduled;
   player.graveyard.push(creature);

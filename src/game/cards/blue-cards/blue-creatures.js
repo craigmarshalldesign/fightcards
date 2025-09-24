@@ -76,7 +76,7 @@ export const blueCreatures = [
     toughness: 4,
     passive: {
       type: 'onEnter',
-      description: 'Tap an enemy creature. It does not untap next turn (simulated by summoning sickness).',
+      description: 'Freeze an enemy creature.',
       effect: { type: 'freeze', target: 'enemy-creature' },
     },
     text: 'Locks down an enemy for a turn.',

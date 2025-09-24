@@ -8,7 +8,7 @@ export const redCreatures = [
     attack: 2,
     toughness: 1,
     abilities: { haste: true },
-    text: '2/1 with haste. Built to deal damage immediately.',
+    text: 'The flame sprite can attack immediately.',
   },
   {
     id: 'red_creature_2',

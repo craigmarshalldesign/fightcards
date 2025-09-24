@@ -90,7 +90,7 @@ export const redSpells = [
     type: 'spell',
     color: 'red',
     cost: 2,
-    text: 'Two friendly creatures gain haste this turn.',
+    text: 'Up to two friendly creatures gain haste this turn.',
     effects: [
       { type: 'grantHaste', target: 'two-friendly', duration: 'turn' },
     ],
