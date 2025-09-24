@@ -473,8 +473,8 @@ input {
 }
 
 .card.blocker-selected {
-  border-color: #facc15;
-  box-shadow: 0 0 14px rgba(250, 204, 21, 0.45);
+  border-color: #38bdf8;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.55);
 }
 
 .card.blocking-creature {

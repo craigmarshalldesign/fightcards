@@ -353,10 +353,17 @@ function renderAttackLines(game) {
   const lines = game.combat.attackers
     .map((attacker) => {
       const attackerId = attacker.creature.instanceId;
-      const isBlocked = game.blocking?.assignments?.[attackerId];
-      const variant = isBlocked ? 'blocked' : 'unblocked';
-      const targetId = isBlocked ? isBlocked.instanceId : 'opponent-life-orb';
-      return `<line class="attack-line ${variant}" data-attacker="${attackerId}" data-target="${targetId}" x1="0" y1="0" x2="0" y2="0" />`;
+      const attackerController = attacker.controller;
+      const defendingPlayer = attackerController === 0 ? 1 : 0;
+      const assignedBlocker = game.blocking?.assignments?.[attackerId];
+      const variant = assignedBlocker ? 'blocked' : 'unblocked';
+      const targetId = assignedBlocker
+        ? assignedBlocker.instanceId
+        : defendingPlayer === 0
+          ? 'player-life-orb'
+          : 'opponent-life-orb';
+      const targetControllerAttr = assignedBlocker ? ` data-target-controller="${defendingPlayer}"` : '';
+      return `<line class="attack-line ${variant}" data-attacker="${attackerId}" data-attacker-controller="${attackerController}" data-target="${targetId}"${targetControllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
     })
     .join('');
 
