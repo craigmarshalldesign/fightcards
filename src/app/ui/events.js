@@ -5,10 +5,16 @@ import {
   confirmAttackers,
   skipCombat,
   finalizeCurrentRequirement,
+  confirmPendingAction,
   cancelPendingAction,
   resolveCombat,
 } from '../game/core.js';
-import { handleHandCardClick, handleCreatureClick, activateCreatureAbility } from '../game/interactions.js';
+import {
+  handleHandCardClick,
+  handleCreatureClick,
+  activateCreatureAbility,
+  handleLifeOrbClick,
+} from '../game/interactions.js';
 
 export function attachEventHandlers(root) {
   root.querySelectorAll('[data-action="start"]').forEach((btn) => {
@@ -152,12 +158,17 @@ function bindGameEvents(root) {
     });
   }
 
-  const confirmTargets = root.querySelector('[data-action="confirm-targets"]');
-  if (confirmTargets) {
-    confirmTargets.addEventListener('click', () => {
+  root.querySelectorAll('[data-action="confirm-targets"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
       finalizeCurrentRequirement();
     });
-  }
+  });
+
+  root.querySelectorAll('[data-action="confirm-pending"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      confirmPendingAction();
+    });
+  });
 
   const cancelAction = root.querySelector('[data-action="cancel-action"]');
   if (cancelAction) {
@@ -178,6 +189,14 @@ function bindGameEvents(root) {
       event.stopPropagation();
       const creatureId = event.currentTarget.getAttribute('data-creature');
       activateCreatureAbility(creatureId);
+    });
+  });
+
+  root.querySelectorAll('[data-player-target]').forEach((orb) => {
+    orb.addEventListener('click', () => {
+      const controller = Number.parseInt(orb.getAttribute('data-player-target') ?? '', 10);
+      if (Number.isNaN(controller)) return;
+      handleLifeOrbClick(controller);
     });
   });
 
@@ -219,9 +238,19 @@ function bindGameEvents(root) {
   });
   
   // Position attack lines after DOM is updated
-  requestAnimationFrame(() => positionAttackLines(root));
+  requestAnimationFrame(() => {
+    positionAttackLines(root);
+    positionTargetLines(root);
+  });
   // Reposition lines on resize/scroll for accuracy
-  window.addEventListener('resize', () => requestAnimationFrame(() => positionAttackLines(root)), { once: true });
+  window.addEventListener(
+    'resize',
+    () => requestAnimationFrame(() => {
+      positionAttackLines(root);
+      positionTargetLines(root);
+    }),
+    { once: true },
+  );
 }
 
 function positionAttackLines(root) {
@@ -282,6 +311,45 @@ function positionAttackLines(root) {
     const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
     
     // Apply to SVG line
+    line.setAttribute('x1', `${startX}`);
+    line.setAttribute('y1', `${startY}`);
+    line.setAttribute('x2', `${endX}`);
+    line.setAttribute('y2', `${endY}`);
+  });
+}
+
+function positionTargetLines(root) {
+  const targetLines = root.querySelectorAll('.target-lines-svg .target-line');
+  if (!targetLines.length) return;
+  const gameView = root.querySelector('.game-view');
+  const activePanel = root.querySelector('.active-spell-panel');
+  if (!gameView || !activePanel) return;
+
+  const containerRect = gameView.getBoundingClientRect();
+  const sourceRect = activePanel.getBoundingClientRect();
+  const startX = sourceRect.left + sourceRect.width / 2 - containerRect.left;
+  const startY = sourceRect.bottom - containerRect.top;
+
+  targetLines.forEach((line) => {
+    const targetId = line.dataset.target;
+    const controllerRaw = line.dataset.targetController;
+    let targetElement = null;
+    if (targetId === 'opponent-life-orb' || targetId === 'player-life-orb') {
+      targetElement = root.querySelector(`#${targetId}`);
+    } else if (targetId) {
+      const controller = Number.parseInt(controllerRaw ?? '', 10);
+      const baseSelector = `[data-card="${targetId}"]`;
+      const controllerSelector = Number.isNaN(controller) ? '' : `[data-controller="${controller}"]`;
+      targetElement =
+        root.querySelector(`${baseSelector}${controllerSelector}`) ||
+        root.querySelector(baseSelector);
+    }
+    if (!targetElement) return;
+
+    const targetRect = targetElement.getBoundingClientRect();
+    const endX = targetRect.left + targetRect.width / 2 - containerRect.left;
+    const endY = targetRect.top + targetRect.height / 2 - containerRect.top;
+
     line.setAttribute('x1', `${startX}`);
     line.setAttribute('y1', `${startY}`);
     line.setAttribute('x2', `${endX}`);

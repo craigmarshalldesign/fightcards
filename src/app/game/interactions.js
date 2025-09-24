@@ -3,7 +3,9 @@ import { addLog } from './log.js';
 import {
   activateCreatureAbility,
   canPlayCard,
+  handlePlayerTargetSelection,
   handleTargetSelection,
+  isTargetablePlayer,
   playCreature,
   prepareSpell,
 } from './core.js';
@@ -59,3 +61,12 @@ export function handleCreatureClick(cardId, controller) {
 }
 
 export { activateCreatureAbility };
+
+export function handleLifeOrbClick(playerIndex) {
+  const game = state.game;
+  if (!game?.pendingAction) return;
+  if (!isTargetablePlayer(playerIndex, game.pendingAction)) {
+    return;
+  }
+  handlePlayerTargetSelection(playerIndex);
+}

@@ -4,6 +4,7 @@ import {
   describePhase,
   describeRequirement,
   isTargetableCreature,
+  isTargetablePlayer,
   canSelectBlocker,
   isAttackingCreature,
   canPlayCard,
@@ -69,6 +70,7 @@ ${renderPlayerStatBar(opponent, game, true)}
         ${shouldShowBlocking ? renderBlocking(blocking, game) : ''}
         ${shouldShowAttackers ? renderAttackers(game) : ''}
       </section>
+      ${renderTargetLines(game)}
       ${renderAttackLines(game)}
       <section class="hand-area">
         <div class="hand-mana-section">
@@ -135,7 +137,9 @@ function renderActiveSpellSlot(game) {
   const requirement = pending?.requirements?.[pending.requirementIndex];
   let instruction = 'No active spell.';
   if (pending) {
-    if (requirement) {
+    if (pending.awaitingConfirmation) {
+      instruction = 'Press Choose to resolve the action.';
+    } else if (requirement) {
       instruction = describeRequirement(requirement);
     } else if (pending.requirements?.length) {
       instruction = pending.type === 'trigger' ? 'Triggered ability resolving…' : 'Spell resolving…';
@@ -146,12 +150,20 @@ function renderActiveSpellSlot(game) {
 
   const selectedCount = requirement ? pending.selectedTargets.length : 0;
   const requiredCount = requirement?.count ?? 0;
+  const confirmedCount = Object.values(pending?.chosenTargets || {}).reduce(
+    (sum, list) => sum + (Array.isArray(list) ? list.length : 0),
+    0,
+  );
   const progressLabel = requirement
     ? `<div class="target-progress">${selectedCount}/${requiredCount} selected</div>`
-    : '';
-  const confirmButton = requirement && requiredCount > 1
-    ? `<button class="mini" data-action="confirm-targets">Confirm Targets (${selectedCount}/${requiredCount})</button>`
-    : '';
+    : pending?.awaitingConfirmation && confirmedCount > 0
+      ? `<div class="target-progress">${confirmedCount} target${confirmedCount === 1 ? '' : 's'} ready</div>`
+      : '';
+  const confirmButton = pending?.awaitingConfirmation
+    ? '<button class="mini" data-action="confirm-pending">Choose</button>'
+    : requirement?.allowLess
+      ? `<button class="mini" data-action="confirm-targets">Confirm Targets (${selectedCount}/${requiredCount})</button>`
+      : '';
   const cancelButton = pending && pending.cancellable !== false
     ? '<button class="mini" data-action="cancel-action">Cancel</button>'
     : '';
@@ -207,7 +219,23 @@ function renderPlayerStatBar(player, game, isOpponent) {
   } else if (lifePercentage <= 50) {
     lifeColor = 'warning';
   }
-  
+
+  const pending = game.pendingAction;
+  const isLifeTargetable = pending ? isTargetablePlayer(playerIndex, pending) : false;
+  const isLifeChosen = pending
+    ? Boolean(
+        pending.selectedTargets?.some((target) => target.type === 'player' && target.controller === playerIndex) ||
+          pending.previewTargets?.some((target) => target.type === 'player' && target.controller === playerIndex) ||
+          Object.values(pending.chosenTargets || {}).some((list) =>
+            (list || []).some((target) => target.type === 'player' && target.controller === playerIndex),
+          ),
+      )
+    : false;
+  const lifeOrbClasses = ['life-orb', `life-${lifeColor}`];
+  if (isLifeTargetable) lifeOrbClasses.push('targetable');
+  if (isLifeChosen) lifeOrbClasses.push('targeted');
+  const lifeOrbId = isOpponent ? 'opponent-life-orb' : 'player-life-orb';
+
   return `
     <section class="player-stat-bar ${isOpponent ? 'opponent-stat-bar' : 'player-stat-bar'}">
       <div class="stat-bar-content">
@@ -215,9 +243,9 @@ function renderPlayerStatBar(player, game, isOpponent) {
           <div class="player-name">${player.name}</div>
           <div class="player-type">${isOpponent ? 'AI Opponent' : 'You'}</div>
         </div>
-        
+
         <div class="life-orb-container">
-          <div class="life-orb life-${lifeColor}" ${isOpponent ? 'id="opponent-life-orb"' : 'id="player-life-orb"'}>
+          <div class="${lifeOrbClasses.join(' ')}" id="${lifeOrbId}" data-player-target="${playerIndex}">
             <div class="life-orb-fill" style="height: ${lifePercentage}%"></div>
             <div class="life-value">${player.life}</div>
           </div>
@@ -270,6 +298,24 @@ function renderCreature(creature, controllerIndex, game) {
   const pending = game.pendingAction;
   if (pending && isTargetableCreature(creature, controllerIndex, pending)) {
     classes.push('targetable');
+  }
+  const isTargeted = pending
+    ? Boolean(
+        pending.selectedTargets?.some(
+          (target) => target.creature?.instanceId === creature.instanceId && target.controller === controllerIndex,
+        ) ||
+          pending.previewTargets?.some(
+            (target) => target.creature?.instanceId === creature.instanceId && target.controller === controllerIndex,
+          ) ||
+          Object.values(pending.chosenTargets || {}).some((list) =>
+            (list || []).some(
+              (target) => target.creature?.instanceId === creature.instanceId && target.controller === controllerIndex,
+            ),
+          ),
+      )
+    : false;
+  if (isTargeted) {
+    classes.push('targeted');
   }
   if (game.blocking && canSelectBlocker(creature, controllerIndex, game)) {
     classes.push('blocker-selectable');
@@ -427,6 +473,80 @@ function renderAttackers(game) {
       <ul>${attackers || '<li>No attackers selected.</li>'}</ul>
       <button data-action="skip-combat">Skip Combat</button>
     </div>
+  `;
+}
+
+function renderTargetLines(game) {
+  const pending = game.pendingAction;
+  if (!pending) return '';
+
+  const targets = [];
+  const seen = new Set();
+
+  const pushTargets = (list = [], variant) => {
+    list.forEach((target) => {
+      if (!target) return;
+      let key;
+      if (target.type === 'player') {
+        key = `player-${target.controller}`;
+      } else if (target.creature?.instanceId) {
+        key = `creature-${target.creature.instanceId}`;
+      }
+      if (!key) return;
+      if (variant !== 'preview' && seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      targets.push({ target, variant });
+    });
+  };
+
+  if (pending.previewTargets?.length) {
+    pushTargets(pending.previewTargets, 'preview');
+  }
+
+  const requirement = pending.requirements?.[pending.requirementIndex];
+  if (requirement && pending.selectedTargets?.length) {
+    pushTargets(pending.selectedTargets, 'active');
+    Object.entries(pending.chosenTargets || {}).forEach(([effectIndex, list]) => {
+      if (Number.parseInt(effectIndex, 10) !== requirement.effectIndex) {
+        pushTargets(list, 'confirmed');
+      }
+    });
+  } else if (pending.awaitingConfirmation) {
+    Object.values(pending.chosenTargets || {}).forEach((list) => {
+      pushTargets(list, 'confirmed');
+    });
+  }
+
+  if (!targets.length) {
+    return '';
+  }
+
+  const lines = targets
+    .map(({ target, variant }) => {
+      let targetId = '';
+      let controllerAttr = '';
+      if (target.type === 'player') {
+        targetId = target.controller === 0 ? 'player-life-orb' : 'opponent-life-orb';
+        controllerAttr = ` data-target-controller="${target.controller}"`;
+      } else if (target.creature?.instanceId) {
+        targetId = target.creature.instanceId;
+        controllerAttr = ` data-target-controller="${target.controller}"`;
+      }
+      if (!targetId) return '';
+      const variantClass = variant ? ` ${variant}` : '';
+      return `<line class="target-line${variantClass}" data-target="${targetId}"${controllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
+    })
+    .filter(Boolean)
+    .join('');
+
+  if (!lines) return '';
+
+  return `
+    <svg class="target-lines-svg" width="100%" height="100%" preserveAspectRatio="none">
+      ${lines}
+    </svg>
   `;
 }
 

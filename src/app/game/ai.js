@@ -91,7 +91,9 @@ function aiPlayTurnStep(aiPlayer) {
       scheduleAI(() => {
         helpers.playCreature(1, card);
         requestRender();
-        runAI();
+        if (!state.game?.pendingAction) {
+          runAI();
+        }
       });
       return true;
     }
@@ -112,21 +114,7 @@ function aiPlayTurnStep(aiPlayer) {
     }
     // Schedule the casting after a delay, then continue
     scheduleAI(() => {
-      helpers.removeFromHand(aiPlayer, card.instanceId);
-      helpers.spendMana(aiPlayer, card.cost ?? 0);
-      addLog([playerSegment(aiPlayer), textSegment(' casts '), cardSegment(card), textSegment('.')], undefined, 'spell');
-      const pending = {
-        controller: 1,
-        card,
-        requirements,
-        requirementIndex: requirements.length,
-        selectedTargets: [],
-        chosenTargets,
-      };
-      helpers.resolveEffects(card.effects || [], pending);
-      aiPlayer.graveyard.push(card);
-      requestRender();
-      runAI();
+      helpers.prepareSpell(1, card, { aiChosenTargets: chosenTargets });
     });
     return true;
   }
@@ -149,7 +137,7 @@ function pickTargetsForAI(requirement, controllerIndex) {
           getCreatureStats(a, ownerIndex, game).attack,
       )
       .slice(0, count)
-      .map((creature) => ({ creature, controller: ownerIndex }));
+      .map((creature) => ({ type: 'creature', creature, controller: ownerIndex }));
 
   if (requirement.target === 'friendly-creature') {
     return selectCreatures(controller.battlefield, controllerIndex, desired);
@@ -175,11 +163,17 @@ function pickTargetsForAI(requirement, controllerIndex) {
     return selectCreatures(controller.battlefield, controllerIndex, desired);
   }
   if (requirement.target === 'any') {
-    const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired);
-    if (enemySelection.length) {
-      return enemySelection;
+    const selections = selectCreatures(opponent.battlefield, opponentIndex, desired);
+    if (requirement.allowPlayers) {
+      selections.push({ type: 'player', controller: opponentIndex });
     }
-    return [];
+    if (selections.length < desired) {
+      selections.push(...selectCreatures(controller.battlefield, controllerIndex, desired - selections.length));
+    }
+    if (requirement.allowPlayers && selections.length < desired) {
+      selections.push({ type: 'player', controller: controllerIndex });
+    }
+    return selections.slice(0, desired);
   }
   return [];
 }
