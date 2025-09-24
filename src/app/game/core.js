@@ -67,6 +67,100 @@ export function createPlayer(name, color, isAI, deck) {
   };
 }
 
+function createCreatureTarget(creature, controller) {
+  return { type: 'creature', creature, controller };
+}
+
+function createPlayerTarget(controller) {
+  const player = state.game?.players?.[controller] || null;
+  return { type: 'player', controller, player };
+}
+
+function initializeCreature(card) {
+  card.baseAttack = card.baseAttack ?? card.attack ?? 0;
+  card.baseToughness = card.baseToughness ?? card.toughness ?? 0;
+  card.summoningSickness = !card.abilities?.haste;
+  card.damageMarked = 0;
+  card.buffs = [];
+}
+
+const AI_PENDING_DELAY = 1000;
+
+function registerPendingTimer(pending, timer) {
+  if (!pending) return;
+  if (!pending.autoTimers) {
+    pending.autoTimers = [];
+  }
+  pending.autoTimers.push(timer);
+}
+
+function clearPendingTimers(pending) {
+  if (!pending?.autoTimers) return;
+  pending.autoTimers.forEach((timer) => clearTimeout(timer));
+  pending.autoTimers = [];
+}
+
+function cleanupPending(pending) {
+  if (!pending) return;
+  clearPendingTimers(pending);
+  if (pending.previewTargets) {
+    pending.previewTargets = [];
+  }
+}
+
+function scheduleAIPendingResolution(pending) {
+  if (!pending?.isAI) return;
+  const game = state.game;
+  if (!game || game.pendingAction !== pending) return;
+  const requirement = pending.requirements?.[pending.requirementIndex];
+  if (!requirement) {
+    if (pending.awaitingConfirmation) {
+      scheduleAIPendingConfirmation(pending);
+    }
+    return;
+  }
+
+  const effectIndex = requirement.effectIndex;
+  let chosenTargets = pending.aiChosenTargets?.[effectIndex];
+  if (!chosenTargets || !chosenTargets.length) {
+    const autoTargets = autoSelectTargetsForRequirement(requirement, pending.controller, pending.card);
+    if (autoTargets.length) {
+      if (!pending.aiChosenTargets) {
+        pending.aiChosenTargets = {};
+      }
+      pending.aiChosenTargets[effectIndex] = autoTargets;
+      chosenTargets = autoTargets;
+    }
+  }
+
+  if (!chosenTargets || !chosenTargets.length) {
+    const timer = setTimeout(() => {
+      if (state.game.pendingAction !== pending) return;
+      finalizeCurrentRequirement();
+    }, AI_PENDING_DELAY);
+    registerPendingTimer(pending, timer);
+    return;
+  }
+
+  pending.previewTargets = chosenTargets.map((target) => ({ ...target }));
+  requestRender();
+  const timer = setTimeout(() => {
+    if (state.game.pendingAction !== pending) return;
+    pending.previewTargets = [];
+    chosenTargets.forEach((target) => selectTargetForPending(target));
+  }, AI_PENDING_DELAY);
+  registerPendingTimer(pending, timer);
+}
+
+function scheduleAIPendingConfirmation(pending) {
+  if (!pending?.isAI) return;
+  const timer = setTimeout(() => {
+    if (state.game.pendingAction !== pending) return;
+    confirmPendingAction(pending);
+  }, AI_PENDING_DELAY);
+  registerPendingTimer(pending, timer);
+}
+
 function rollForInitiative() {
   let player = 0;
   let ai = 0;
@@ -125,21 +219,44 @@ export function playCreature(playerIndex, card) {
   const player = game.players[playerIndex];
   removeFromHand(player, card.instanceId);
   spendMana(player, card.cost ?? 0);
-  card.baseAttack = card.baseAttack ?? card.attack ?? 0;
-  card.baseToughness = card.baseToughness ?? card.toughness ?? 0;
-  card.summoningSickness = !card.abilities?.haste;
-  card.damageMarked = 0;
-  card.buffs = [];
+  initializeCreature(card);
+
+  const onEnterEffect = card.passive?.type === 'onEnter' ? card.passive.effect : null;
+  const requiresSelection = Boolean(onEnterEffect && effectRequiresChoice(onEnterEffect));
+
+  if (requiresSelection) {
+    const pending = {
+      type: 'summon',
+      controller: playerIndex,
+      card,
+      effects: onEnterEffect ? [onEnterEffect] : [],
+      requirements: onEnterEffect ? buildEffectRequirements([onEnterEffect]) : [],
+      requirementIndex: 0,
+      selectedTargets: [],
+      chosenTargets: {},
+      cancellable: false,
+      awaitingConfirmation: false,
+      isAI: Boolean(player.isAI),
+    };
+    game.pendingAction = pending;
+    addLog([playerSegment(player), textSegment(' prepares to summon '), cardSegment(card), textSegment('.')], undefined, 'spell');
+    requestRender();
+    if (player.isAI) {
+      scheduleAIPendingResolution(pending);
+    }
+    return;
+  }
+
   player.battlefield.push(card);
   addLog([playerSegment(player), textSegment(' summons '), cardSegment(card), textSegment('.')], undefined, 'spell');
   handlePassive(card, playerIndex, 'onEnter');
 }
 
-export function prepareSpell(playerIndex, card) {
+export function prepareSpell(playerIndex, card, options = {}) {
   const game = state.game;
   const player = game.players[playerIndex];
   const requirements = computeRequirements(card);
-  game.pendingAction = {
+  const pending = {
     type: 'spell',
     controller: playerIndex,
     card,
@@ -149,12 +266,25 @@ export function prepareSpell(playerIndex, card) {
     selectedTargets: [],
     chosenTargets: {},
     cancellable: true,
+    awaitingConfirmation: false,
+    isAI: Boolean(player.isAI),
   };
+  if (options.aiChosenTargets) {
+    pending.aiChosenTargets = options.aiChosenTargets;
+  }
+  game.pendingAction = pending;
   addLog([playerSegment(player), textSegment(' prepares '), cardSegment(card), textSegment('.')], undefined, 'spell');
   if (requirements.length === 0) {
-    executeSpell(game.pendingAction);
-  } else {
+    pending.awaitingConfirmation = true;
     requestRender();
+    if (pending.isAI) {
+      scheduleAIPendingConfirmation(pending);
+    }
+    return;
+  }
+  requestRender();
+  if (pending.isAI) {
+    scheduleAIPendingResolution(pending);
   }
 }
 
@@ -165,7 +295,15 @@ function buildEffectRequirements(effects = []) {
     switch (effect.type) {
       case 'damage': {
         if (['enemy-creature', 'friendly-creature', 'any', 'any-creature', 'creature'].includes(effect.target)) {
-          reqs.push({ ...requirementBase, count: 1, target: effect.target === 'creature' ? 'creature' : effect.target });
+          const requirement = {
+            ...requirementBase,
+            count: 1,
+            target: effect.target === 'creature' ? 'creature' : effect.target,
+          };
+          if (effect.target === 'any') {
+            requirement.allowPlayers = true;
+          }
+          reqs.push(requirement);
         }
         break;
       }
@@ -227,21 +365,32 @@ export function computeRequirements(card) {
 }
 
 export function handleTargetSelection(creature, controller) {
+  const target = createCreatureTarget(creature, controller);
+  selectTargetForPending(target);
+}
+
+export function selectTargetForPending(target) {
   const pending = state.game.pendingAction;
-  if (!pending) return;
+  if (!pending) return false;
   const requirement = pending.requirements[pending.requirementIndex];
-  if (!requirement) return;
-  if (!isTargetValid(creature, controller, requirement, pending)) {
+  if (!requirement) return false;
+  if (!isTargetValid(target, requirement, pending)) {
     addLog('Invalid target.');
     requestRender();
-    return;
+    return false;
   }
-  pending.selectedTargets.push({ creature, controller });
-  if (pending.selectedTargets.length >= requirement.count) {
+  pending.selectedTargets.push(target);
+  if (pending.selectedTargets.length >= (requirement.count ?? 1)) {
     finalizeCurrentRequirement();
   } else {
     requestRender();
   }
+  return true;
+}
+
+export function handlePlayerTargetSelection(playerIndex) {
+  const target = createPlayerTarget(playerIndex);
+  selectTargetForPending(target);
 }
 
 export function finalizeCurrentRequirement() {
@@ -249,17 +398,43 @@ export function finalizeCurrentRequirement() {
   const pending = game.pendingAction;
   if (!pending) return;
   const requirement = pending.requirements[pending.requirementIndex];
-  pending.chosenTargets[requirement.effectIndex] = [...pending.selectedTargets];
+  const requiredCount = requirement?.count ?? 1;
+  if (!requirement) return;
+  if (!requirement.allowLess && pending.selectedTargets.length < requiredCount) {
+    return;
+  }
+  pending.chosenTargets[requirement.effectIndex] = pending.selectedTargets.map((target) => ({ ...target }));
   pending.selectedTargets = [];
   pending.requirementIndex += 1;
   if (pending.requirementIndex >= pending.requirements.length) {
-    if (pending.type === 'trigger') {
-      resolveTriggeredPending(pending);
-    } else {
-      executeSpell(pending);
+    pending.awaitingConfirmation = true;
+    requestRender();
+    if (pending.isAI) {
+      scheduleAIPendingConfirmation(pending);
     }
   } else {
     requestRender();
+    if (pending.isAI) {
+      scheduleAIPendingResolution(pending);
+    }
+  }
+}
+
+export function confirmPendingAction(pendingOverride) {
+  const game = state.game;
+  if (!game) return;
+  const pending = pendingOverride ?? game.pendingAction;
+  if (!pending || game.pendingAction !== pending) return;
+  if (pending.requirements?.length && !pending.awaitingConfirmation) {
+    return;
+  }
+  pending.awaitingConfirmation = false;
+  if (pending.type === 'spell') {
+    executeSpell(pending);
+  } else if (pending.type === 'trigger') {
+    resolveTriggeredPending(pending);
+  } else if (pending.type === 'summon') {
+    resolvePendingSummon(pending);
   }
 }
 
@@ -270,6 +445,7 @@ export function cancelPendingAction() {
     return;
   }
   const { pendingAction } = game;
+  cleanupPending(pendingAction);
   game.pendingAction = null;
   if (pendingAction.type === 'spell') {
     addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')], undefined, 'spell');
@@ -289,12 +465,26 @@ export function executeSpell(pending) {
   addLog([playerSegment(player), textSegment(' casts '), cardSegment(pending.card), textSegment('.')], undefined, 'spell');
   resolveEffects(pending.effects, pending);
   player.graveyard.push(pending.card);
+  cleanupPending(pending);
   game.pendingAction = null;
   requestRender();
   checkForWinner();
   if (game.currentPlayer === 1) {
     runAI();
   }
+}
+
+function resolvePendingSummon(pending) {
+  const game = state.game;
+  const player = game.players[pending.controller];
+  player.battlefield.push(pending.card);
+  addLog([playerSegment(player), textSegment(' summons '), cardSegment(pending.card), textSegment('.')], undefined, 'spell');
+  resolveEffects(pending.effects, pending);
+  cleanupPending(pending);
+  game.pendingAction = null;
+  requestRender();
+  checkForWinner();
+  continueAIIfNeeded();
 }
 
 export function resolveEffects(effects, pending) {
@@ -317,7 +507,11 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
         dealDamageToPlayer(controllerIndex, effect.amount);
       } else if (targets.length) {
         targets.forEach((target) => {
-          dealDamageToCreature(target.creature, target.controller, effect.amount);
+          if (target.type === 'player') {
+            dealDamageToPlayer(target.controller, effect.amount);
+          } else if (target.creature) {
+            dealDamageToCreature(target.creature, target.controller, effect.amount);
+          }
         });
       }
       break;
@@ -471,7 +665,13 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
   checkForDeadCreatures();
 }
 
-function isTargetValid(creature, controller, requirement, pending) {
+function isTargetValid(target, requirement, pending) {
+  if (!target) return false;
+  if (target.type === 'player') {
+    return Boolean(requirement.allowPlayers);
+  }
+  const { creature, controller } = target;
+  if (!creature) return false;
   if (requirement.target === 'friendly-creature') {
     if (requirement.effect?.excludeSelf && pending.card && creature.instanceId === pending.card.instanceId) {
       return false;
@@ -493,7 +693,14 @@ function isTargetValid(creature, controller, requirement, pending) {
 export function isTargetableCreature(creature, controller, pending) {
   const requirement = pending.requirements[pending.requirementIndex];
   if (!requirement) return false;
-  return isTargetValid(creature, controller, requirement, pending);
+  return isTargetValid(createCreatureTarget(creature, controller), requirement, pending);
+}
+
+export function isTargetablePlayer(playerIndex, pending) {
+  const requirement = pending.requirements[pending.requirementIndex];
+  if (!requirement) return false;
+  const target = createPlayerTarget(playerIndex);
+  return isTargetValid(target, requirement, pending);
 }
 
 export function describeRequirement(requirement) {
@@ -505,7 +712,7 @@ export function describeRequirement(requirement) {
     case 'any-creature':
     case 'any':
     case 'creature':
-      return 'Select a creature.';
+      return requirement.allowPlayers ? 'Select a target.' : 'Select a creature.';
     default:
       return 'Choose targets.';
   }
@@ -515,6 +722,7 @@ function resolveTriggeredPending(pending) {
   const game = state.game;
   resolveEffects(pending.effects, pending);
   if (game.pendingAction === pending) {
+    cleanupPending(pending);
     game.pendingAction = null;
   }
   requestRender();
@@ -558,6 +766,9 @@ function getValidTargetsForRequirement(requirement, controllerIndex, sourceCard)
       return [
         ...mapCreatures(controller.battlefield, controllerIndex),
         ...mapCreatures(opponent.battlefield, opponentIndex),
+        ...(requirement.allowPlayers
+          ? [createPlayerTarget(controllerIndex), createPlayerTarget(opponentIndex)]
+          : []),
       ];
     default:
       return [];
@@ -580,7 +791,7 @@ function autoSelectTargetsForRequirement(requirement, controllerIndex, sourceCar
           getCreatureStats(b, ownerIndex, game).attack - getCreatureStats(a, ownerIndex, game).attack,
       )
       .slice(0, count)
-      .map((creature) => ({ creature, controller: ownerIndex }));
+      .map((creature) => createCreatureTarget(creature, ownerIndex));
 
   switch (requirement.target) {
     case 'friendly-creature':
@@ -591,21 +802,21 @@ function autoSelectTargetsForRequirement(requirement, controllerIndex, sourceCar
     case 'creature':
     case 'any': {
       const preferFriendly = FRIENDLY_EFFECT_TYPES.has(requirement.effect?.type);
-      let friendly = [];
       if (preferFriendly) {
-        friendly = selectCreatures(controller.battlefield, controllerIndex, desired);
+        const friendly = selectCreatures(controller.battlefield, controllerIndex, desired);
         if (friendly.length >= desired) {
           return friendly;
         }
+        const enemy = selectCreatures(opponent.battlefield, opponentIndex, desired);
+        return friendly.concat(enemy).slice(0, desired);
       }
       const enemy = selectCreatures(opponent.battlefield, opponentIndex, desired);
-      if (enemy.length >= desired) {
-        return enemy;
-      }
-      if (!preferFriendly) {
-        return enemy.length ? enemy : [];
-      }
-      return friendly.length ? friendly : enemy;
+      const friendly = selectCreatures(controller.battlefield, controllerIndex, desired);
+      const playerTargets = requirement.allowPlayers
+        ? [createPlayerTarget(opponentIndex), createPlayerTarget(controllerIndex)]
+        : [];
+      const combined = [...enemy, ...playerTargets, ...friendly];
+      return combined.slice(0, desired);
     }
     default:
       return [];
@@ -618,6 +829,7 @@ export function handlePassive(card, controllerIndex, trigger) {
   if (!effect) return;
   const description = card.passive.description;
   const opponentIndex = controllerIndex === 0 ? 1 : 0;
+  const player = state.game.players[controllerIndex];
 
   const pending = {
     type: 'trigger',
@@ -629,6 +841,8 @@ export function handlePassive(card, controllerIndex, trigger) {
     selectedTargets: [],
     chosenTargets: {},
     cancellable: false,
+    awaitingConfirmation: false,
+    isAI: Boolean(player.isAI),
   };
 
   if (effect.type === 'damage' && effect.target === 'any') {
@@ -690,6 +904,9 @@ export function handlePassive(card, controllerIndex, trigger) {
       if (needsSelection) {
         state.game.pendingAction = pending;
         requestRender();
+        if (player.isAI) {
+          scheduleAIPendingResolution(pending);
+        }
         return;
       }
     }
