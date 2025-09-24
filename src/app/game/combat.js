@@ -14,25 +14,33 @@ export function triggerAttackPassive(creature, controllerIndex) {
 
 export function startCombatStage() {
   const game = state.game;
-  const player = game.players[0];
+  const currentPlayerIndex = game.currentPlayer ?? 0;
+  const currentPlayer = game.players[currentPlayerIndex];
   
-  // Auto-select all eligible attacking creatures
-  const eligibleAttackers = player.battlefield.filter(creature => 
-    creature.type === 'creature' && !creature.summoningSickness
+  // Only auto-select attackers for the human player on their turn.
+  // When it's the AI's turn, initialize an empty attackers list so no
+  // attack indicators render until the AI explicitly declares.
+  const eligibleAttackers = currentPlayer.battlefield.filter(
+    (creature) => creature.type === 'creature' && !creature.summoningSickness,
   );
   
-  game.combat = { 
-    attackers: eligibleAttackers.map(creature => ({ creature, controller: 0 })), 
-    stage: 'choose' 
+  game.combat = {
+    attackers:
+      currentPlayerIndex === 0
+        ? eligibleAttackers.map((creature) => ({ creature, controller: 0 }))
+        : [],
+    stage: 'choose',
   };
   game.blocking = null;
   
   addLog('Combat begins.');
   
-  if (eligibleAttackers.length > 0) {
-    addLog(`${eligibleAttackers.length} creature(s) ready to attack.`);
-  } else {
-    addLog('No creatures available to attack.');
+  if (currentPlayerIndex === 0) {
+    if (eligibleAttackers.length > 0) {
+      addLog(`${eligibleAttackers.length} creature(s) ready to attack.`);
+    } else {
+      addLog('No creatures available to attack.');
+    }
   }
 }
 
@@ -101,8 +109,13 @@ export function prepareBlocks() {
     return;
   }
   if (game.players[defending].isAI) {
+    // Let the player see who blocks before damage resolves
     aiAssignBlocks();
-    resolveCombat();
+    requestRender();
+    const AI_UI_DELAY_MS = 1000;
+    setTimeout(() => {
+      resolveCombat();
+    }, AI_UI_DELAY_MS);
   } else {
     game.blocking.awaitingDefender = true;
     requestRender();
@@ -266,5 +279,9 @@ export function canSelectBlocker(creature, controllerIndex, game) {
 
 export function isAttackingCreature(creature, controllerIndex, game) {
   if (!game.combat) return false;
-  return game.combat.attackers.some((atk) => atk.creature.instanceId === creature.instanceId);
+  // Only consider attackers that belong to the current player to avoid
+  // styling opponents' creatures as attackers during your turn and vice versa.
+  return game.combat.attackers.some(
+    (atk) => atk.creature.instanceId === creature.instanceId && atk.controller === game.currentPlayer,
+  );
 }

@@ -345,12 +345,24 @@ function renderAttackers(game) {
 }
 
 function renderAttackLines(game) {
-  // Only show attack lines during combat when there are attackers
+  // Only show attack lines during combat when attackers are declared
   if (!game.combat || !game.combat.attackers || game.combat.attackers.length === 0) {
     return '';
   }
 
-  const lines = game.combat.attackers
+  // During AI "choose" stage, hide lines to avoid stray indicators.
+  // For the player's "choose" stage, show lines so selections are visible.
+  if (game.combat.stage === 'choose' && game.currentPlayer === 1) {
+    return '';
+  }
+
+  // Strong guard: only render lines if the current player has declared at least one attacker.
+  const visibleAttackers = game.combat.attackers.filter((atk) => atk.controller === game.currentPlayer);
+  if (!visibleAttackers.length) {
+    return '';
+  }
+
+  const lines = visibleAttackers
     .map((attacker) => {
       const attackerId = attacker.creature.instanceId;
       const attackerController = attacker.controller;
@@ -362,9 +374,19 @@ function renderAttackLines(game) {
         : defendingPlayer === 0
           ? 'player-life-orb'
           : 'opponent-life-orb';
+      // Safety: never draw lines pointing to the wrong life orb for current turn
+      if (!assignedBlocker) {
+        if (game.currentPlayer === 1 && targetId === 'opponent-life-orb') {
+          return '';
+        }
+        if (game.currentPlayer === 0 && targetId === 'player-life-orb') {
+          return '';
+        }
+      }
       const targetControllerAttr = assignedBlocker ? ` data-target-controller="${defendingPlayer}"` : '';
       return `<line class="attack-line ${variant}" data-attacker="${attackerId}" data-attacker-controller="${attackerController}" data-target="${targetId}"${targetControllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
     })
+    .filter(Boolean)
     .join('');
 
   return `

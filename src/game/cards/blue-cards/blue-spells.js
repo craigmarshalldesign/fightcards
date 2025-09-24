@@ -91,7 +91,7 @@ export const blueSpells = [
   },
   {
     id: 'blue_spell_9',
-    name: 'Deep Healing',
+    name: 'Thought Shimmer',
     type: 'spell',
     color: 'blue',
     cost: 2,
