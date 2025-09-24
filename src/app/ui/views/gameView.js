@@ -21,6 +21,53 @@ function renderTypeBadge(card) {
   return `<span class="type-badge ${variant}">${escapeHtml(label || 'CARD')}</span>`;
 }
 
+function renderDeckIcon(color) {
+  const c = (color || 'neutral').toLowerCase();
+  if (c === 'red') {
+    // Flame icon
+    return `
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+        <defs>
+          <linearGradient id="flameGrad" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#fb923c" />
+            <stop offset="100%" stop-color="#ef4444" />
+          </linearGradient>
+        </defs>
+        <path fill="url(#flameGrad)" d="M12 2c1.5 3.5-.5 5.5-1.5 6.5-1 .9-1.5 1.9-1.5 3 0 2.5 2 4 4 4 2.2 0 4-1.8 4-4 0-2.8-2.2-4.6-3.2-6.9-.4-.9-.6-1.8-.8-2.6z"/>
+        <path fill="#fde68a" opacity="0.9" d="M12 10c-.7.8-1 1.4-1 2.1 0 1.1.9 1.9 2 1.9s2-.8 2-1.9c0-1.2-1-2-1.8-3.2-.3.5-.7.8-1.2 1.1z"/>
+      </svg>`;
+  }
+  if (c === 'blue') {
+    // Water drop
+    return `
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+        <defs>
+          <linearGradient id="waterGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#60a5fa" />
+            <stop offset="100%" stop-color="#1d4ed8" />
+          </linearGradient>
+        </defs>
+        <path fill="url(#waterGrad)" d="M12 2c3.5 5 7 7.9 7 12a7 7 0 1 1-14 0c0-4.1 3.5-7 7-12z"/>
+        <circle cx="10" cy="14" r="2" fill="#bfdbfe" opacity="0.7"/>
+      </svg>`;
+  }
+  if (c === 'green') {
+    // Leaf
+    return `
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+        <defs>
+          <linearGradient id="leafGrad" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#86efac" />
+            <stop offset="100%" stop-color="#22c55e" />
+          </linearGradient>
+        </defs>
+        <path fill="url(#leafGrad)" d="M20 4c-7 0-12 4-14 8 0 5 4 8 8 8 6 0 8-7 6-16z"/>
+        <path d="M8 14c2-2 6-4 10-4" stroke="#065f46" stroke-width="1.5" fill="none" opacity="0.6"/>
+      </svg>`;
+  }
+  return '';
+}
+
 // Build status chips for a card.
 // controllerIndex is required for battlefield creatures (to compute global buffs),
 // but can be omitted for hand/preview contexts.
@@ -280,10 +327,12 @@ function renderPlayerStatBar(player, game, isOpponent) {
   if (isLifeChosen) lifeOrbClasses.push('targeted');
   const lifeOrbId = isOpponent ? 'opponent-life-orb' : 'player-life-orb';
 
+  const colorClass = sanitizeClass(player.color || 'neutral');
   return `
-    <section class="player-stat-bar ${isOpponent ? 'opponent-stat-bar' : 'player-stat-bar'}">
+    <section class="player-stat-bar ${isOpponent ? 'opponent-stat-bar' : 'player-stat-bar'} player-color-${colorClass}">
       <div class="stat-bar-content">
         <div class="player-identity">
+          <div class="player-icon">${renderDeckIcon(player.color)}</div>
           <div class="player-name">${player.name}</div>
           <div class="player-type">${isOpponent ? 'AI Opponent' : 'You'}</div>
         </div>
