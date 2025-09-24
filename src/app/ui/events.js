@@ -221,6 +221,18 @@ function bindGameEvents(root) {
     });
   });
 
+  // Open graveyard modal when clicking the grave count (for either player)
+  root.querySelectorAll('[data-open-grave]').forEach((el) => {
+    el.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const controllerRaw = el.getAttribute('data-open-grave');
+      const controller = Number.parseInt(controllerRaw ?? '', 10);
+      if (Number.isNaN(controller)) return;
+      state.ui.openGraveFor = controller;
+      requestRender();
+    });
+  });
+
   const previewOverlay = root.querySelector('.card-preview-overlay');
   if (previewOverlay) {
     previewOverlay.addEventListener('click', (event) => {
@@ -231,6 +243,25 @@ function bindGameEvents(root) {
       requestRender();
     });
   }
+
+  const graveOverlay = root.querySelector('.graveyard-overlay');
+  if (graveOverlay) {
+    graveOverlay.addEventListener('click', (event) => {
+      if (event.target.closest('[data-grave-dialog]')) {
+        return;
+      }
+      state.ui.openGraveFor = null;
+      requestRender();
+    });
+  }
+
+  root.querySelectorAll('[data-action="close-graveyard"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      state.ui.openGraveFor = null;
+      requestRender();
+    });
+  });
 
   root.querySelectorAll('[data-action="close-preview"]').forEach((btn) => {
     btn.addEventListener('click', (event) => {

@@ -18,6 +18,7 @@ export const initialState = {
     battleLogExpanded: false,
     spellLogExpanded: false,
     previewCard: null,
+    openGraveFor: null, // controller index (0 = player, 1 = opponent)
   },
 };
 

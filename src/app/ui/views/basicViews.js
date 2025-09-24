@@ -17,7 +17,7 @@ export function renderLogin() {
   return `
     <div class="view view-center">
       <div class="card panel">
-        <h1>Elemental Clash</h1>
+        <h1>Fight Cards</h1>
         <p class="subtitle">Sign in with email to save your duels.</p>
         <form id="email-form" class="form">
           <label>Email</label>
@@ -41,7 +41,7 @@ export function renderMenu() {
   return `
     <div class="view view-center">
       <div class="card panel">
-        <h1>Elemental Clash</h1>
+        <h1>Fight Cards</h1>
         <p class="subtitle">Three elements collide in strategic battles.</p>
         <button class="primary" data-action="start">Start Game</button>
         <button data-action="signout">Sign out</button>

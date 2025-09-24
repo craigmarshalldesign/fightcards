@@ -11,6 +11,7 @@ import {
 } from '../../game/core.js';
 import { getCreatureStats, hasShimmer } from '../../game/creatures.js';
 import { renderBattlefieldSkin } from './battlefield/index.js';
+import { renderGraveyardModal } from './graveyardView.js';
 
 function getCardColorClass(card) {
   return `card-color-${card?.color ?? 'neutral'}`;
@@ -199,6 +200,7 @@ ${renderPlayerStatBar(opponent, game, true)}
         </div>
       </section>
       ${renderCardPreviewModal(game)}
+      ${renderGraveyardModal(game)}
     </div>
   `;
 }
@@ -358,7 +360,7 @@ function renderPlayerStatBar(player, game, isOpponent) {
             <div class="count-value">${handCount}</div>
             <div class="count-label">Hand</div>
           </div>
-          <div class="card-count-item">
+          <div class="card-count-item" data-open-grave="${playerIndex}" tabindex="0" role="button" aria-label="Open graveyard">
             <div class="count-icon grave-icon"></div>
             <div class="count-value">${graveCount}</div>
             <div class="count-label">Grave</div>
