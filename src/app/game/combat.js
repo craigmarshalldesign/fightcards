@@ -21,7 +21,10 @@ export function startCombatStage() {
   // When it's the AI's turn, initialize an empty attackers list so no
   // attack indicators render until the AI explicitly declares.
   const eligibleAttackers = currentPlayer.battlefield.filter(
-    (creature) => creature.type === 'creature' && !creature.summoningSickness,
+    (creature) =>
+      creature.type === 'creature' &&
+      !creature.summoningSickness &&
+      !(creature.frozenTurns > 0),
   );
   
   game.combat = {
@@ -49,6 +52,11 @@ export function toggleAttacker(creature) {
   if (!game.combat) return;
   if (game.combat.stage !== 'choose') {
     addLog('Attackers have already been declared.');
+    requestRender();
+    return;
+  }
+  if (creature.frozenTurns > 0) {
+    addLog([cardSegment(creature), textSegment(' is frozen and cannot attack this turn.')]);
     requestRender();
     return;
   }
@@ -142,6 +150,11 @@ export function selectBlocker(creature) {
   const game = state.game;
   if (!game.blocking) return;
   if (!game.combat || game.combat.stage !== 'blockers') return;
+  if (creature.frozenTurns > 0) {
+    addLog([cardSegment(creature), textSegment(' is frozen and cannot block.')]);
+    requestRender();
+    return;
+  }
   // Creatures can block even with summoning sickness
   game.blocking.selectedBlocker = creature;
   addLog([cardSegment(creature), textSegment(' is ready to block.')]);
@@ -155,6 +168,11 @@ export function assignBlockerToAttacker(attackerCreature) {
   const blocker = game.blocking.selectedBlocker;
   if (!blocker) {
     addLog('Select a blocker first.');
+    requestRender();
+    return;
+  }
+  if (blocker.frozenTurns > 0) {
+    addLog([cardSegment(blocker), textSegment(' is frozen and cannot block.')]);
     requestRender();
     return;
   }
