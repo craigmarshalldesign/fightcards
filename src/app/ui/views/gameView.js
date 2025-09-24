@@ -1,5 +1,5 @@
 import { state } from '../../state.js';
-import { getRecentLogEntries, getFullLog } from '../../game/log.js';
+import { getLogEntries } from '../../game/log.js';
 import {
   describePhase,
   describeRequirement,
@@ -19,35 +19,33 @@ export function renderGame() {
   if (!game) return '';
   const player = game.players[0];
   const opponent = game.players[1];
-  const recentLogEntries = getRecentLogEntries(game);
-  // Always show exactly 5 entries to maintain consistent size
-  const paddedEntries = [...recentLogEntries];
-  while (paddedEntries.length < 5) {
-    paddedEntries.push({ segments: [{ type: 'text', text: '' }] });
-  }
-  const recentLog = paddedEntries.map((entry) => `<li>${renderLogEntry(entry) || '&nbsp;'}</li>`).join('');
-  const fullLog = getFullLog(game, recentLogEntries.length)
-    .map((entry) => `<li>${renderLogEntry(entry)}</li>`)
-    .join('');
-  const pending = game.pendingAction;
+  const battleLogEntries = getLogEntries(game, 'battle');
+  const spellLogEntries = getLogEntries(game, 'spell');
   const blocking = game.blocking;
   const shouldShowBlocking = Boolean(blocking && game.currentPlayer === 1 && blocking.awaitingDefender);
   const shouldShowAttackers = Boolean(game.combat && game.combat.stage === 'choose' && game.currentPlayer === 0);
   return `
     <div class="view game-view">
-      <section class="log-panel">
-        <div class="log-header">
-          <h3>Battle Log</h3>
-          <button class="mini" data-action="toggle-log">${state.ui.logExpanded ? 'Hide Full Log' : 'View Full Log'}</button>
-        </div>
-        <ul class="log-recent">${recentLog || '<li>No events yet.</li>'}</ul>
-        <div class="log-dropdown ${state.ui.logExpanded ? 'open' : ''}">
-          <div class="log-scroll">
-            <ul>${fullLog || '<li>No events yet.</li>'}</ul>
-          </div>
-        </div>
+      <section class="top-status-grid">
+        ${renderLogSection({
+          title: 'Battle Log',
+          className: 'battle-log',
+          entries: battleLogEntries,
+          expanded: state.ui.battleLogExpanded,
+          toggleAction: 'toggle-battle-log',
+          emptyMessage: 'No battle events yet.',
+        })}
+        ${renderActiveSpellSlot(game)}
+        ${renderLogSection({
+          title: 'Spell Log',
+          className: 'spell-log',
+          entries: spellLogEntries,
+          expanded: state.ui.spellLogExpanded,
+          toggleAction: 'toggle-spell-log',
+          emptyMessage: 'No spell activity yet.',
+        })}
       </section>
-      ${renderPlayerStatBar(opponent, game, true)}
+${renderPlayerStatBar(opponent, game, true)}
       <section class="battlefield-area">
         <div class="battle-row opponent-row">
           ${renderPlayerBoard(opponent, game, true)}
@@ -59,16 +57,15 @@ export function renderGame() {
       ${renderPlayerStatBar(player, game, false)}
       <section class="game-controls">
         <div class="turn-indicator ${game.currentPlayer === 0 ? 'player-turn' : 'opponent-turn'}">
-          <div class="turn-info">
-            <span class="turn-number">Turn ${game.turn}</span>
-            <span class="phase-name">${describePhase(game)}</span>
-          </div>
-          <div class="current-player">
-            ${game.currentPlayer === 0 ? 'Your Turn' : 'AI Turn'}
-          </div>
+        <div class="turn-info">
+          <span class="turn-number">Turn ${game.turn}</span>
+          <span class="phase-name">${describePhase(game)}</span>
         </div>
-        <div class="phase-controls">${renderPhaseControls(game, shouldShowAttackers)}</div>
-        ${pending ? renderPendingAction(pending) : ''}
+        <div class="current-player">
+          ${game.currentPlayer === 0 ? 'Your Turn' : 'AI Turn'}
+        </div>
+      </div>
+      <div class="phase-controls">${renderPhaseControls(game, shouldShowAttackers)}</div>
         ${shouldShowBlocking ? renderBlocking(blocking, game) : ''}
         ${shouldShowAttackers ? renderAttackers(game) : ''}
       </section>
@@ -101,6 +98,95 @@ export function renderGame() {
       </section>
       ${renderCardPreviewModal(game)}
     </div>
+  `;
+}
+
+function renderLogSection({ title, className = '', entries = [], expanded = false, toggleAction, emptyMessage }) {
+  const hasEntries = entries.length > 0;
+  let items;
+  if (hasEntries) {
+    const renderedEntries = entries.map((entry) => `<li>${renderLogEntry(entry) || '&nbsp;'}</li>`);
+    const placeholders = [];
+    for (let i = renderedEntries.length; i < 5; i += 1) {
+      placeholders.push('<li class="log-placeholder">&nbsp;</li>');
+    }
+    items = [...renderedEntries, ...placeholders].join('');
+  } else {
+    items = `<li class="log-empty">${emptyMessage || 'No events yet.'}</li>`;
+  }
+
+  return `
+    <section class="log-panel ${className}">
+      <div class="log-header">
+        <h3>${title}</h3>
+        <button class="mini" data-action="${toggleAction}">${expanded ? 'Hide Full Log' : 'View Full Log'}</button>
+      </div>
+      <div class="log-scroll ${expanded ? 'expanded' : ''}">
+        <ul>${items}</ul>
+      </div>
+    </section>
+  `;
+}
+
+function renderActiveSpellSlot(game) {
+  const pending = game.pendingAction;
+  const controller = pending ? game.players[pending.controller] : null;
+  const card = pending?.card;
+  const requirement = pending?.requirements?.[pending.requirementIndex];
+  let instruction = 'No active spell.';
+  if (pending) {
+    if (requirement) {
+      instruction = describeRequirement(requirement);
+    } else if (pending.requirements?.length) {
+      instruction = pending.type === 'trigger' ? 'Triggered ability resolving…' : 'Spell resolving…';
+    } else {
+      instruction = pending.type === 'trigger' ? 'Triggered ability resolving…' : 'Spell resolving…';
+    }
+  }
+
+  const selectedCount = requirement ? pending.selectedTargets.length : 0;
+  const requiredCount = requirement?.count ?? 0;
+  const progressLabel = requirement
+    ? `<div class="target-progress">${selectedCount}/${requiredCount} selected</div>`
+    : '';
+  const confirmButton = requirement && requiredCount > 1
+    ? `<button class="mini" data-action="confirm-targets">Confirm Targets (${selectedCount}/${requiredCount})</button>`
+    : '';
+  const cancelButton = pending && pending.cancellable !== false
+    ? '<button class="mini" data-action="cancel-action">Cancel</button>'
+    : '';
+  const cardText = card?.text ? `<p class="active-card-text">${formatText(card.text)}</p>` : '';
+  const cardMeta = card
+    ? `<div class="active-card-title">
+        <span class="name">${escapeHtml(card.name ?? 'Unknown Card')}</span>
+        ${card.cost != null ? `<span class="cost">Cost ${card.cost}</span>` : ''}
+      </div>
+      <div class="active-card-meta">
+        <span class="type">${escapeHtml((card.type ?? 'Card').toString())}</span>
+        ${controller ? `<span class="controller">${escapeHtml(controller.name)}</span>` : ''}
+      </div>
+      ${cardText}`
+    : '<p class="active-placeholder-text">Spells will appear here while they resolve.</p>';
+
+  return `
+    <section class="active-spell-panel ${pending ? 'has-active' : 'empty'}">
+        <div class="panel-header">
+          <h3>Active Spell Slot</h3>
+          ${
+            pending
+              ? `<span class="panel-status">${escapeHtml(controller?.name ?? '')}</span>`
+              : '<span class="panel-status idle">Idle</span>'
+          }
+        </div>
+      <div class="active-spell-body ${card ? `card-color-${sanitizeClass(card.color ?? 'neutral')}` : ''}">
+        ${cardMeta}
+        <div class="active-instructions">
+          <p>${escapeHtml(instruction)}</p>
+          ${progressLabel}
+        </div>
+      </div>
+      ${pending ? `<div class="active-actions">${confirmButton}${cancelButton}</div>` : ''}
+    </section>
   `;
 }
 

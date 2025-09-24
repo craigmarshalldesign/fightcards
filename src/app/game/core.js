@@ -131,7 +131,7 @@ export function playCreature(playerIndex, card) {
   card.damageMarked = 0;
   card.buffs = [];
   player.battlefield.push(card);
-  addLog([playerSegment(player), textSegment(' summons '), cardSegment(card), textSegment('.')]);
+  addLog([playerSegment(player), textSegment(' summons '), cardSegment(card), textSegment('.')], undefined, 'spell');
   handlePassive(card, playerIndex, 'onEnter');
 }
 
@@ -150,7 +150,7 @@ export function prepareSpell(playerIndex, card) {
     chosenTargets: {},
     cancellable: true,
   };
-  addLog([playerSegment(player), textSegment(' prepares '), cardSegment(card), textSegment('.')]);
+  addLog([playerSegment(player), textSegment(' prepares '), cardSegment(card), textSegment('.')], undefined, 'spell');
   if (requirements.length === 0) {
     executeSpell(game.pendingAction);
   } else {
@@ -272,7 +272,7 @@ export function cancelPendingAction() {
   const { pendingAction } = game;
   game.pendingAction = null;
   if (pendingAction.type === 'spell') {
-    addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')]);
+    addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')], undefined, 'spell');
   } else if (pendingAction.card) {
     addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
   } else {
@@ -286,7 +286,7 @@ export function executeSpell(pending) {
   const player = game.players[pending.controller];
   removeFromHand(player, pending.card.instanceId);
   spendMana(player, pending.card.cost ?? 0);
-  addLog([playerSegment(player), textSegment(' casts '), cardSegment(pending.card), textSegment('.')]);
+  addLog([playerSegment(player), textSegment(' casts '), cardSegment(pending.card), textSegment('.')], undefined, 'spell');
   resolveEffects(pending.effects, pending);
   player.graveyard.push(pending.card);
   game.pendingAction = null;
@@ -633,7 +633,7 @@ export function handlePassive(card, controllerIndex, trigger) {
 
   if (effect.type === 'damage' && effect.target === 'any') {
     if (description) {
-      addLog([cardSegment(card), textSegment(' triggers: '), textSegment(description)]);
+      addLog([cardSegment(card), textSegment(' triggers: '), textSegment(description)], undefined, 'spell');
     }
     const requirements = buildEffectRequirements([effect]);
     if (requirements.length) {
@@ -655,7 +655,7 @@ export function handlePassive(card, controllerIndex, trigger) {
   }
 
   if (description) {
-    addLog([cardSegment(card), textSegment(' triggers: '), textSegment(description)]);
+    addLog([cardSegment(card), textSegment(' triggers: '), textSegment(description)], undefined, 'spell');
   }
 
   const requiresChoice = effectRequiresChoice(effect);
@@ -848,7 +848,8 @@ export function startGame(color) {
   game.currentPlayer = game.dice.winner;
   state.game = game;
   state.screen = 'game';
-  state.ui.logExpanded = false;
+  state.ui.battleLogExpanded = false;
+  state.ui.spellLogExpanded = false;
   state.ui.previewCard = null;
   addLog(
     `Initiative roll — You: ${game.dice.player}, AI: ${game.dice.ai}. ${game.currentPlayer === 0 ? 'You go first.' : 'AI goes first.'}`,

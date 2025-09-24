@@ -62,13 +62,19 @@ export function attachEventHandlers(root) {
     });
   }
 
-  const toggleLogBtn = root.querySelector('[data-action="toggle-log"]');
-  if (toggleLogBtn) {
-    toggleLogBtn.addEventListener('click', () => {
-      state.ui.logExpanded = !state.ui.logExpanded;
+  root.querySelectorAll('[data-action="toggle-battle-log"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ui.battleLogExpanded = !state.ui.battleLogExpanded;
       requestRender();
     });
-  }
+  });
+
+  root.querySelectorAll('[data-action="toggle-spell-log"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ui.spellLogExpanded = !state.ui.spellLogExpanded;
+      requestRender();
+    });
+  });
 
   const emailForm = root.querySelector('#email-form');
   if (emailForm) {
