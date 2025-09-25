@@ -235,7 +235,10 @@ function renderLogSection({ title, className = '', entries = [], expanded = fals
 function renderActiveSpellSlot(game) {
   const pending = game.pendingAction;
   // Skip rendering abilities in the active slot - they handle their own UI
-  if (pending && pending.type === 'ability') {
+  if (
+    pending &&
+    (pending.type === 'ability' || (pending.type === 'trigger' && pending.context === 'combat-trigger'))
+  ) {
     return `
       <section class="active-spell-panel empty">
         <div class="panel-header">
@@ -526,6 +529,45 @@ function renderCreature(creature, controllerIndex, game) {
     </div>
   ` : '';
 
+  const isTriggerPendingForThis =
+    pending &&
+    pending.type === 'trigger' &&
+    pending.context === 'combat-trigger' &&
+    pending.card?.instanceId === creature.instanceId &&
+    pending.controller === controllerIndex;
+
+  const triggerActions = isTriggerPendingForThis && controllerIndex === 0 ? `
+    <div class="creature-ability-actions">
+      <button class="mini cancel" data-action="cancel-action">Cancel</button>
+      ${(() => {
+        const req = pending.requirements?.[pending.requirementIndex];
+        const selectedCount = pending.selectedTargets?.length || 0;
+        const requiredCount = req?.count || 0;
+        const hasRequiredTargets = !req || selectedCount >= requiredCount;
+
+        if (pending.awaitingConfirmation || hasRequiredTargets) {
+          return '<button class="mini" data-action="confirm-pending">Choose</button>';
+        }
+        return '<button class="mini disabled" disabled>Choose</button>';
+      })()}
+    </div>
+    <div class="ability-status">
+      ${(() => {
+        const req = pending.requirements?.[pending.requirementIndex];
+        const selectedCount = pending.selectedTargets?.length || 0;
+        const requiredCount = req?.count || 0;
+
+        if (!req) {
+          return 'Ready to resolve';
+        }
+        if (selectedCount === 0) {
+          return `Select ${requiredCount} target${requiredCount > 1 ? 's' : ''}`;
+        }
+        return `${selectedCount}/${requiredCount} selected`;
+      })()}
+    </div>
+  ` : '';
+
   return `
     <div class="${classes.join(' ')}" data-card="${creature.instanceId}" data-controller="${controllerIndex}">
       <div class="card-header">
@@ -539,6 +581,7 @@ function renderCreature(creature, controllerIndex, game) {
       </div>
       ${abilityButtons.length ? `<div class="ability">${abilityButtons.join('')}</div>` : ''}
       ${abilityActions}
+      ${triggerActions}
       <div class="card-footer">
         <span class="stat attack">${stats.attack}</span>/<span class="${toughnessClasses.join(' ')}">${currentToughness}</span>${damageChip}
       </div>
@@ -560,11 +603,14 @@ function renderCard(card, isHand, game) {
   }
   const baseAttack = card.baseAttack ?? card.attack ?? 0;
   const baseToughness = card.baseToughness ?? card.toughness ?? 0;
-  
+
   // Show activated abilities in small text for hand/graveyard/preview cards
-  const activatedAbilityText = card.activated ? 
+  const activatedAbilityText = card.activated ?
     `<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>` : '';
-  
+  const triggeredAbilityText = card.passive?.type === 'onAttack'
+    ? `<p class="card-triggered-preview">Triggered — ${escapeHtml(card.passive.description)}</p>`
+    : '';
+
   return `
     <div class="${classes.join(' ')}" data-card="${card.instanceId}" data-location="hand">
       <div class="card-header">
@@ -575,6 +621,7 @@ function renderCard(card, isHand, game) {
       <div class="card-body">
         <p class="card-text">${card.text || ''}</p>
         ${activatedAbilityText}
+        ${triggeredAbilityText}
         ${card.type === 'creature' ? renderStatusChips(card, undefined, game) : ''}
       </div>
       ${card.type === 'creature' ? `<div class="card-footer"><span class="stat attack">${baseAttack}</span>/<span class="stat toughness">${baseToughness}</span></div>` : ''}
@@ -659,6 +706,8 @@ function renderTargetLines(game) {
   const pending = game.pendingAction;
   if (!pending) return '';
 
+  const treatAsAbilitySource = pending.type === 'ability' || (pending.type === 'trigger' && pending.context === 'combat-trigger');
+
   const targets = [];
   const seen = new Set();
 
@@ -715,7 +764,7 @@ function renderTargetLines(game) {
       }
       if (!targetId) return '';
       const variantClass = variant ? ` ${variant}` : '';
-      const abilityClass = pending.type === 'ability' ? ' ability' : '';
+      const abilityClass = treatAsAbilitySource ? ' ability' : '';
       return `<line class="target-line${variantClass}${abilityClass}" data-target="${targetId}"${controllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
     })
     .filter(Boolean)
@@ -884,7 +933,10 @@ function renderPreviewCard(card) {
   if (card.activated) {
     bodyParts.push(`<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`);
   }
-  if (card.passive?.description) {
+  if (card.passive?.type === 'onAttack') {
+    bodyParts.push(`<p class="card-triggered-preview">Triggered — ${escapeHtml(card.passive.description)}</p>`);
+  }
+  if (card.passive?.description && card.passive?.type !== 'onAttack') {
     bodyParts.push(`<p class="card-passive">${formatText(card.passive.description)}</p>`);
   }
   if (!bodyParts.length) {

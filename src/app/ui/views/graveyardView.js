@@ -27,6 +27,9 @@ export function renderGraveyardModal(game) {
           if (card.activated) {
             bodyParts.push(`<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`);
           }
+          if (card.passive?.type === 'onAttack') {
+            bodyParts.push(`<p class="card-triggered-preview">Triggered — ${escapeHtml(card.passive.description)}</p>`);
+          }
           const body = bodyParts.join('');
           return `
             <article class="card ${typeClass} ${colorClass}">

@@ -8,8 +8,8 @@ export function registerPassiveHandler(handler) {
   passiveHandler = handler;
 }
 
-export function triggerAttackPassive(creature, controllerIndex) {
-  passiveHandler(creature, controllerIndex, 'onAttack');
+export function triggerAttackPassive(creature, controllerIndex, options = {}) {
+  passiveHandler(creature, controllerIndex, 'onAttack', options);
 }
 
 export function startCombatStage() {
@@ -33,11 +33,12 @@ export function startCombatStage() {
         ? eligibleAttackers.map((creature) => ({ creature, controller: 0 }))
         : [],
     stage: 'choose',
+    triggerQueue: [],
   };
   game.blocking = null;
-  
+
   addLog('Combat begins.');
-  
+
   if (currentPlayerIndex === 0) {
     if (eligibleAttackers.length > 0) {
       addLog(`${eligibleAttackers.length} creature(s) ready to attack.`);
@@ -70,7 +71,6 @@ export function toggleAttacker(creature) {
     game.combat.attackers = game.combat.attackers.filter((atk) => atk.creature.instanceId !== creature.instanceId);
   } else {
     game.combat.attackers.push({ creature, controller: 0 });
-    triggerAttackPassive(creature, 0);
   }
   requestRender();
 }
@@ -88,6 +88,78 @@ export function confirmAttackers() {
     return;
   }
   addLog(`Attacking with ${game.combat.attackers.length} creature(s).`);
+  beginAttackTriggerStage();
+}
+
+function beginAttackTriggerStage() {
+  const game = state.game;
+  if (!game?.combat) return;
+
+  const triggers = (game.combat.attackers || [])
+    .filter((attacker) => attacker.creature?.passive?.type === 'onAttack')
+    .map((attacker) => ({
+      controller: attacker.controller,
+      creatureId: attacker.creature.instanceId,
+    }));
+
+  if (!triggers.length) {
+    game.combat.stage = 'blockers';
+    game.combat.triggerQueue = [];
+    prepareBlocks();
+    return;
+  }
+
+  game.combat.stage = 'triggers';
+  game.combat.triggerQueue = triggers;
+  requestRender();
+  resolveNextAttackTrigger();
+}
+
+function resolveNextAttackTrigger() {
+  const game = state.game;
+  if (!game?.combat) return;
+
+  const queue = game.combat.triggerQueue || [];
+  if (!queue.length) {
+    finishAttackTriggers();
+    return;
+  }
+
+  const current = queue[0];
+  const attackerEntry = game.combat.attackers.find(
+    (attacker) => attacker.controller === current.controller && attacker.creature.instanceId === current.creatureId,
+  );
+
+  if (!attackerEntry || attackerEntry.creature.passive?.type !== 'onAttack') {
+    queue.shift();
+    resolveNextAttackTrigger();
+    return;
+  }
+
+  const creature = attackerEntry.creature;
+
+  triggerAttackPassive(creature, current.controller, {
+    context: 'combat-trigger',
+    afterResolve: () => {
+      const latestGame = state.game;
+      if (!latestGame?.combat) return;
+      if (latestGame.combat.triggerQueue?.length) {
+        latestGame.combat.triggerQueue.shift();
+      }
+      resolveNextAttackTrigger();
+    },
+  });
+
+  const pending = state.game?.pendingAction;
+  if (pending && pending.type === 'trigger' && pending.card?.instanceId === creature.instanceId) {
+    pending.context = pending.context || 'combat-trigger';
+  }
+}
+
+function finishAttackTriggers() {
+  const game = state.game;
+  if (!game?.combat) return;
+  game.combat.triggerQueue = [];
   game.combat.stage = 'blockers';
   prepareBlocks();
 }

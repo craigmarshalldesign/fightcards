@@ -108,6 +108,20 @@ function cleanupPending(pending) {
   }
 }
 
+function resetTriggerSelection(pending) {
+  if (!pending) return;
+  clearPendingTimers(pending);
+  pending.selectedTargets = [];
+  pending.requirementIndex = 0;
+  pending.awaitingConfirmation = false;
+  pending.previewTargets = [];
+  const locked = pending.lockedTargets || {};
+  pending.chosenTargets = {};
+  Object.entries(locked).forEach(([effectIndex, targets]) => {
+    pending.chosenTargets[effectIndex] = (targets || []).map((target) => ({ ...target }));
+  });
+}
+
 function scheduleAIPendingResolution(pending) {
   if (!pending?.isAI) return;
   const game = state.game;
@@ -477,6 +491,10 @@ export function cancelPendingAction() {
   const game = state.game;
   if (!game.pendingAction) return;
   if (game.pendingAction.cancellable === false) {
+    if (game.pendingAction.type === 'trigger') {
+      resetTriggerSelection(game.pendingAction);
+      requestRender();
+    }
     return;
   }
   const { pendingAction } = game;
@@ -863,6 +881,11 @@ function resolveTriggeredPending(pending) {
   }
   requestRender();
   checkForWinner();
+  const callback = pending.afterResolve;
+  pending.afterResolve = null;
+  if (typeof callback === 'function') {
+    callback();
+  }
   continueAIIfNeeded();
 }
 
@@ -959,10 +982,17 @@ function autoSelectTargetsForRequirement(requirement, controllerIndex, sourceCar
   }
 }
 
-export function handlePassive(card, controllerIndex, trigger) {
-  if (!card.passive || card.passive.type !== trigger) return;
+export function handlePassive(card, controllerIndex, trigger, options = {}) {
+  const { afterResolve, context } = options;
+  if (!card.passive || card.passive.type !== trigger) {
+    afterResolve?.();
+    return;
+  }
   const effect = card.passive.effect;
-  if (!effect) return;
+  if (!effect) {
+    afterResolve?.();
+    return;
+  }
   const description = card.passive.description;
   const opponentIndex = controllerIndex === 0 ? 1 : 0;
   const player = state.game.players[controllerIndex];
@@ -979,6 +1009,9 @@ export function handlePassive(card, controllerIndex, trigger) {
     cancellable: false,
     awaitingConfirmation: false,
     isAI: Boolean(player.isAI),
+    context: context || null,
+    afterResolve: afterResolve || null,
+    lockedTargets: {},
   };
 
   if (effect.type === 'damage' && effect.target === 'any') {
@@ -1000,6 +1033,7 @@ export function handlePassive(card, controllerIndex, trigger) {
     dealDamageToPlayer(opponentIndex, effect.amount);
     requestRender();
     checkForWinner();
+    afterResolve?.();
     continueAIIfNeeded();
     return;
   }
@@ -1021,6 +1055,7 @@ export function handlePassive(card, controllerIndex, trigger) {
         const validTargets = getValidTargetsForRequirement(requirement, controllerIndex, card);
         if (validTargets.length === 0) {
           pending.chosenTargets[requirement.effectIndex] = [];
+          pending.lockedTargets[requirement.effectIndex] = [];
           return;
         }
         const requiredCount = requirement.count ?? 1;
@@ -1034,7 +1069,9 @@ export function handlePassive(card, controllerIndex, trigger) {
           return;
         }
 
-        pending.chosenTargets[requirement.effectIndex] = autoTargets.slice(0, requiredCount);
+        const chosen = autoTargets.slice(0, requiredCount);
+        pending.chosenTargets[requirement.effectIndex] = chosen;
+        pending.lockedTargets[requirement.effectIndex] = chosen.map((target) => ({ ...target }));
       });
 
       if (needsSelection) {

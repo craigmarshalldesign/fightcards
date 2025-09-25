@@ -1,6 +1,6 @@
 import { state, requestRender } from '../state.js';
 import { addLog, cardSegment, playerSegment, textSegment } from './log.js';
-import { resolveCombat, skipCombat, triggerAttackPassive } from './combat.js';
+import { confirmAttackers, skipCombat } from './combat.js';
 import { getCreatureStats } from './creatures.js';
 
 let helpers = {
@@ -196,7 +196,7 @@ function aiDeclareAttacks() {
   }
   // Declare after a delay (this function itself is usually called via scheduleAI, but be robust)
   game.combat.attackers = attackers.map((creature) => ({ creature, controller: 1 }));
-  game.combat.stage = 'blockers';
+  game.combat.stage = 'choose';
   attackers.forEach((creature) => {
     helpers.addLog([
       playerSegment(game.players[1]),
@@ -204,25 +204,7 @@ function aiDeclareAttacks() {
       cardSegment(creature),
       textSegment(' into battle.'),
     ]);
-    triggerAttackPassive(creature, 1);
   });
-  game.blocking = {
-    attackers: [...game.combat.attackers],
-    assignments: {},
-    selectedBlocker: null,
-    awaitingDefender: false,
-  };
-  const blockers = game.players[0].battlefield.filter((c) => c.type === 'creature');
-  if (blockers.length === 0) {
-    addLog([playerSegment(game.players[0]), textSegment(' has no blockers.')]);
-    // Show attack indicators for a moment, then resolve combat
-    requestRender();
-    scheduleAI(() => {
-      resolveCombat();
-      runAI();
-    });
-    return;
-  }
-  game.blocking.awaitingDefender = true;
   requestRender();
+  confirmAttackers();
 }
