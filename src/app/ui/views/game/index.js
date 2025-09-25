@@ -18,6 +18,7 @@ export function renderGame() {
   const blocking = game.blocking;
   const shouldShowBlocking = Boolean(blocking && game.currentPlayer === 1 && blocking.awaitingDefender);
   const shouldShowAttackers = Boolean(game.combat && game.combat.stage === 'choose' && game.currentPlayer === 0);
+  const shouldHideSkipCombat = Boolean(game.combat && game.combat.stage !== 'choose');
 
   return `
     <div class="view game-view">
@@ -25,7 +26,7 @@ export function renderGame() {
       ${renderPlayerStatBar(opponent, game, true)}
       ${renderBattlefieldSection({ player, opponent, game })}
       ${renderPlayerStatBar(player, game, false)}
-      ${renderGameControls({ game, shouldShowBlocking, shouldShowAttackers })}
+      ${renderGameControls({ game, shouldShowBlocking, shouldShowAttackers, shouldHideSkipCombat })}
       ${renderTargetLines(game)}
       ${renderAttackLines(game)}
       ${renderHandArea(player, game)}

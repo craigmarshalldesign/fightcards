@@ -48,7 +48,7 @@ import {
 import { resolveEffects } from './effects.js';
 import { checkForWinner, continueAIIfNeeded } from './runtime.js';
 import { dealDamageToPlayer, registerWinnerHook } from '../creatures.js';
-import { createInitialStats, recordTurnStart } from './stats.js';
+import { createInitialStats, recordTurnStart, recordCardPlay } from './stats.js';
 
 function skipCombatWrapper() {
   skipCombatPhase();
@@ -116,6 +116,8 @@ export function playCreature(playerIndex, card) {
 
   player.battlefield.push(card);
   logSummon(player, card);
+  // Count this as a creature played immediately when no selection is required
+  recordCardPlay(playerIndex, 'creature');
   handlePassive(card, playerIndex, 'onEnter');
 }
 
@@ -345,7 +347,7 @@ export function beginTurn(playerIndex) {
 
   player.maxMana += 1;
   player.availableMana = player.maxMana;
-  drawCards(player, 2);
+  drawCards(player, 1);
   player.battlefield.forEach((creature) => {
     creature.summoningSickness = false;
     creature.activatedThisTurn = false;

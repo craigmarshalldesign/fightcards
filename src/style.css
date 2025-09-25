@@ -27,7 +27,7 @@ body {
 #app {
   position: relative;
   width: 100%;
-  height: 100vh;
+  height: 100svh;
   display: flex;
   justify-content: center;
   align-items: stretch;
@@ -43,7 +43,7 @@ body {
 
   #app {
     max-width: 1200px;
-    height: calc(100vh - 4rem);
+    height: calc(100svh - 4rem);
     border-radius: 24px;
   }
 }
@@ -79,7 +79,8 @@ body {
   align-items: center;
   justify-content: center;
   padding: clamp(1.5rem, 6vw, 4rem);
-  min-height: min(720px, 100%);
+  /* Fill the parent content box height to avoid double-counting padding */
+  height: 100%;
   overflow: hidden;
 }
 
@@ -115,6 +116,9 @@ body {
   border: 1px solid rgba(114, 144, 255, 0.35);
   box-shadow: 0 35px 65px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
 }
 
 .hero-panel.compact {
@@ -147,14 +151,14 @@ body {
 .hero-header h2,
 .hero-header h3 {
   margin: 0;
-  font-size: clamp(2rem, 5vw, 3rem);
+  font-size: clamp(2.25rem, 7vw, 3.2rem);
   line-height: 1.1;
 }
 
 .hero-header p {
   margin: 0;
   color: rgba(214, 225, 255, 0.85);
-  font-size: clamp(1rem, 2.4vw, 1.15rem);
+  font-size: clamp(1.05rem, 2.8vw, 1.25rem);
 }
 
 .hero-feature-list {
@@ -164,7 +168,7 @@ body {
   display: grid;
   gap: 0.9rem;
   color: rgba(214, 225, 255, 0.9);
-  font-size: 1rem;
+  font-size: 1.05rem;
 }
 
 .hero-feature-list li strong {
@@ -182,7 +186,7 @@ body {
   border: 1px solid rgba(120, 140, 255, 0.25);
   border-radius: 20px;
   background: rgba(30, 38, 72, 0.72);
-  padding: 1.25rem;
+  padding: 1.35rem;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -210,14 +214,14 @@ body {
 }
 
 .info-card-title {
-  font-size: 1.25rem;
+  font-size: 1.3rem;
   font-weight: 700;
   color: #f5f7ff;
 }
 
 .info-card-body {
   color: rgba(214, 225, 255, 0.82);
-  font-size: 0.98rem;
+  font-size: 1.02rem;
   line-height: 1.4;
 }
 
@@ -360,22 +364,47 @@ body {
 }
 
 @media (max-width: 600px) {
+  .hero-view { padding: clamp(1rem, 4vw, 2rem); }
+
   .hero-panel {
-    padding: 1.5rem;
+    width: 100%;
+    border-radius: 20px;
+    padding: 1.25rem;
+    gap: 1rem;
   }
 
   .hero-header h1,
   .hero-header h2 {
-    font-size: clamp(1.8rem, 8vw, 2.4rem);
+    font-size: clamp(2rem, 9vw, 2.6rem);
+  }
+
+  .hero-header p {
+    font-size: clamp(1rem, 4vw, 1.15rem);
   }
 
   .hero-feature-list {
-    font-size: 0.95rem;
+    font-size: 1.05rem;
   }
 
   .hero-card-grid {
     grid-template-columns: 1fr;
   }
+
+  .info-card {
+    padding: 1.1rem;
+    border-radius: 18px;
+  }
+
+  .info-card-title { font-size: 1.25rem; }
+  .info-card-body { font-size: 1rem; }
+
+  button { font-size: 1.1rem; padding: 1.1rem 1.35rem; }
+  button.large { font-size: 1.28rem; padding: 1.25rem 1.5rem; }
+}
+
+/* When a hero view is present, disable outer scrolling so background fits screen */
+.ui-layer:has(.hero-view) {
+  overflow: hidden;
 }
 
 .view-center {
@@ -406,9 +435,9 @@ body {
 button {
   border: none;
   border-radius: 12px;
-  padding: 0.8rem 1rem;
+  padding: 1rem 1.25rem;
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 1.05rem;
   background: linear-gradient(135deg, #5560ff, #a855f7);
   color: #fff;
   cursor: pointer;
@@ -445,8 +474,8 @@ button.primary {
 }
 
 button.large {
-  font-size: 1.08rem;
-  padding: 1rem 1.4rem;
+  font-size: 1.2rem;
+  padding: 1.2rem 1.5rem;
 }
 
 button.ghost {

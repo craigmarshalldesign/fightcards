@@ -49,7 +49,7 @@ export function renderMenu() {
         <div class="hero-header">
           <span class="hero-kicker">Strategy Card Battler</span>
           <h1>Fight Cards</h1>
-          <p>Three elements clash in fast, tactical duels built for any screen.</p>
+          <p>Battle against your friends or the AI in a fast, tactical card game.</p>
         </div>
         <ul class="hero-feature-list">
           <li><strong>Build momentum</strong> with elemental synergies.</li>
@@ -155,6 +155,7 @@ export function renderGameOver() {
       : 'No victor emerged this time.';
   const statTemplate = {
     cardsPlayed: 0,
+    spellsCast: 0,
     creaturesSummoned: 0,
     creaturesDestroyed: 0,
     damageDealt: 0,
@@ -164,7 +165,7 @@ export function renderGameOver() {
   const playerStats = ensureStats(0);
   const opponentStats = ensureStats(1);
   const statRows = [
-    { label: 'Cards Played', player: playerStats.cardsPlayed, opponent: opponentStats.cardsPlayed },
+    { label: 'Spells Played', player: playerStats.spellsCast ?? 0, opponent: opponentStats.spellsCast ?? 0 },
     { label: 'Creatures Summoned', player: playerStats.creaturesSummoned, opponent: opponentStats.creaturesSummoned },
     { label: 'Creatures Destroyed', player: playerStats.creaturesDestroyed, opponent: opponentStats.creaturesDestroyed },
     { label: 'Damage Dealt', player: playerStats.damageDealt, opponent: opponentStats.damageDealt },

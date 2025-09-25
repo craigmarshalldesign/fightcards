@@ -68,17 +68,22 @@ export function renderPlayerStatBar(player, game, isOpponent) {
 
         <div class="card-counts">
           <div class="card-count-item">
-            <div class="count-icon deck-icon"></div>
+            <div class="count-icon-clean">💎</div>
+            <div class="count-value">${player.availableMana}/${player.maxMana}</div>
+            <div class="count-label">Mana</div>
+          </div>
+          <div class="card-count-item">
+            <div class="count-icon-clean">🎴</div>
             <div class="count-value">${deckCount}</div>
             <div class="count-label">Deck</div>
           </div>
           <div class="card-count-item">
-            <div class="count-icon hand-icon"></div>
+            <div class="count-icon-clean">🪬</div>
             <div class="count-value">${handCount}</div>
             <div class="count-label">Hand</div>
           </div>
           <div class="card-count-item" data-open-grave="${playerIndex}" tabindex="0" role="button" aria-label="Open graveyard">
-            <div class="count-icon grave-icon"></div>
+            <div class="count-icon-clean">💀</div>
             <div class="count-value">${graveCount}</div>
             <div class="count-label">Grave</div>
           </div>

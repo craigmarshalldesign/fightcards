@@ -134,9 +134,9 @@ export const redCreatures = [
     toughness: 5,
     passive: {
       type: 'onEnter',
-      description: 'Deal 3 damage divided as you choose (auto assigned evenly).',
-      effect: { type: 'splashDamage', amount: 3 },
+      description: 'Deal 3 damage to any target when it enters.',
+      effect: { type: 'damage', target: 'any', amount: 3 },
     },
-    text: 'Massive finisher blasting enemies on entry.',
+    text: 'Massive finisher blasting any target on entry.',
   },
 ];

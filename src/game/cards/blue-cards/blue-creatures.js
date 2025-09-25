@@ -1,7 +1,7 @@
 export const blueCreatures = [
   {
     id: 'blue_creature_1',
-    name: 'Wave Adept',
+    name: 'Sly Cuddlefish',
     type: 'creature',
     cost: 1,
     color: 'blue',
@@ -9,10 +9,10 @@ export const blueCreatures = [
     toughness: 1,
     passive: {
       type: 'onAttack',
-      description: 'When Wave Adept attacks, draw a card.',
+      description: 'When Sly Cuddlefish attacks, draw a card.',
       effect: { type: 'draw', amount: 1 },
     },
-    text: 'Learns from every strike.',
+    text: 'Sneaky little Cephalopod.',
   },
   {
     id: 'blue_creature_2',

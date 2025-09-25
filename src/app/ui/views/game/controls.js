@@ -1,7 +1,7 @@
 import { describePhase } from '../../../game/core/index.js';
 import { getCreatureStats } from '../../../game/creatures.js';
 
-export function renderGameControls({ game, shouldShowBlocking, shouldShowAttackers }) {
+export function renderGameControls({ game, shouldShowBlocking, shouldShowAttackers, shouldHideSkipCombat }) {
   return `
     <section class="game-controls">
       <div class="turn-indicator ${game.currentPlayer === 0 ? 'player-turn' : 'opponent-turn'}">
@@ -13,9 +13,9 @@ export function renderGameControls({ game, shouldShowBlocking, shouldShowAttacke
           ${game.currentPlayer === 0 ? 'Your Turn' : 'AI Turn'}
         </div>
       </div>
-      <div class="phase-controls">${renderPhaseControls(game, shouldShowAttackers)}</div>
+      <div class="phase-controls">${renderPhaseControls(game, shouldHideSkipCombat)}</div>
       ${shouldShowBlocking ? renderBlocking(game.blocking, game) : ''}
-      ${shouldShowAttackers ? renderAttackers(game) : ''}
+${shouldShowAttackers ? renderAttackers(game) : ''}
     </section>
   `;
 }
@@ -27,9 +27,13 @@ function renderPhaseControls(game, hideSkipCombat = false) {
   }
   const buttons = [];
   const disabledAttr = game.pendingAction ? ' disabled' : '';
+  
+  // Check if we're in attacker selection mode
+  const isSelectingAttackers = Boolean(game.combat && game.combat.stage === 'choose' && game.currentPlayer === 0);
+  
   if (game.phase === 'main1') {
     buttons.push(`<button data-action="end-phase"${disabledAttr}>Go to Combat</button>`);
-  } else if (game.phase === 'combat' && !hideSkipCombat) {
+  } else if (game.phase === 'combat' && !hideSkipCombat && !isSelectingAttackers) {
     buttons.push(`<button data-action="skip-combat"${disabledAttr}>Skip Combat</button>`);
   } else if (game.phase === 'main2') {
     buttons.push(`<button data-action="end-phase"${disabledAttr}>End Turn</button>`);

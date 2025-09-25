@@ -48,6 +48,13 @@ export function grantShimmer(creature, duration = 'turn') {
 export function bounceCreature(creature, controllerIndex) {
   const player = state.game.players[controllerIndex];
   removeFromBattlefield(player, creature.instanceId);
+  
+  // Tokens are destroyed when they leave the battlefield instead of returning to hand
+  if (creature.isToken) {
+    addLog([cardSegment(creature), textSegment(' is destroyed (token cannot return to hand).')]);
+    return;
+  }
+  
   // Reset transient state when a creature leaves the battlefield
   creature.damageMarked = 0;
   creature.buffs = [];

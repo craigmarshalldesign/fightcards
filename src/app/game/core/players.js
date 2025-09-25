@@ -10,7 +10,7 @@ export function createPlayer(name, color, isAI, deck) {
     hand: [],
     battlefield: [],
     graveyard: [],
-    life: 15,
+    life: 20,
     maxMana: 0,
     availableMana: 0,
   };
@@ -51,9 +51,20 @@ export function sortHand(player) {
   player.hand.sort((a, b) => {
     const costA = a.cost ?? 0;
     const costB = b.cost ?? 0;
+    
+    // First sort by mana cost
     if (costA !== costB) {
       return costA - costB;
     }
+    
+    // Within same mana cost, group by type (creatures first, then spells)
+    const typeA = a.type === 'creature' ? 0 : 1;
+    const typeB = b.type === 'creature' ? 0 : 1;
+    if (typeA !== typeB) {
+      return typeA - typeB;
+    }
+    
+    // Within same cost and type, group identical cards together by name
     return (a.name || '').localeCompare(b.name || '');
   });
 }
