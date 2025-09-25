@@ -308,12 +308,15 @@ function renderCreature(creature, controllerIndex, game) {
   }
   const abilityButtons = [];
   if (creature.activated) {
-    const canActivate = controllerIndex === 0 &&
-                       !creature.activatedThisTurn &&
-                       (!game.pendingAction || (game.pendingAction.type === 'ability' && game.pendingAction.card?.instanceId === creature.instanceId)) &&
-                       game.players[controllerIndex].availableMana >= creature.activated.cost &&
-                       (game.phase === 'main1' || game.phase === 'main2') &&
-                       game.currentPlayer === controllerIndex;
+    const canActivate =
+      controllerIndex === 0 &&
+      !creature.activatedThisTurn &&
+      !(creature.frozenTurns > 0) &&
+      (!game.pendingAction ||
+        (game.pendingAction.type === 'ability' && game.pendingAction.card?.instanceId === creature.instanceId)) &&
+      game.players[controllerIndex].availableMana >= creature.activated.cost &&
+      (game.phase === 'main1' || game.phase === 'main2') &&
+      game.currentPlayer === controllerIndex;
     const abilityName = creature.activated.name ? `${escapeHtml(creature.activated.name)}:` : 'Ability:';
     abilityButtons.push(
       `<div class="ability-row">

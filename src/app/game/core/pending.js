@@ -16,6 +16,7 @@ import { removeFromHand, sortHand, spendMana } from './players.js';
 import { resolveEffects } from './effects.js';
 import { checkForWinner, continueAIIfNeeded } from './runtime.js';
 import { notifyTriggerResolved } from '../combat/triggers.js';
+import { recordCardPlay } from './stats.js';
 
 const AI_PENDING_DELAY = 1000;
 
@@ -289,6 +290,7 @@ function executeSpell(pending) {
     undefined,
     'spell',
   );
+  recordCardPlay(pending.controller, 'spell');
   resolveEffects(pending.effects, pending);
   player.graveyard.push(pending.card);
   cleanupPending(pending);
@@ -308,6 +310,7 @@ function resolvePendingSummon(pending) {
     cardSegment(pending.card),
     textSegment('.'),
   ], undefined, 'spell');
+  recordCardPlay(pending.controller, 'creature');
   resolveEffects(pending.effects, pending);
   cleanupPending(pending);
   game.pendingAction = null;
@@ -320,6 +323,18 @@ function executeAbility(pending) {
   const game = state.game;
   const player = game.players[pending.controller];
   const creature = pending.card;
+
+  if (creature.frozenTurns > 0) {
+    addLog([
+      cardSegment(creature),
+      textSegment(' is frozen and cannot use its ability.'),
+    ]);
+    cleanupPending(pending);
+    game.pendingAction = null;
+    requestRender();
+    continueAIIfNeeded();
+    return;
+  }
 
   spendMana(player, creature.activated.cost ?? 0);
   creature.activatedThisTurn = true;

@@ -48,6 +48,7 @@ import {
 import { resolveEffects } from './effects.js';
 import { checkForWinner, continueAIIfNeeded } from './runtime.js';
 import { dealDamageToPlayer, registerWinnerHook } from '../creatures.js';
+import { createInitialStats, recordTurnStart } from './stats.js';
 
 function skipCombatWrapper() {
   skipCombatPhase();
@@ -263,6 +264,11 @@ export function activateCreatureAbility(creatureId) {
   const creature = game.players[0].battlefield.find((c) => c.instanceId === creatureId);
   if (game.pendingAction) return;
   if (!creature || !creature.activated || creature.activatedThisTurn) return;
+  if (creature.frozenTurns > 0) {
+    addLog([cardSegment(creature), textSegment(' is frozen and cannot use its ability right now.')]);
+    requestRender();
+    return;
+  }
   if (game.players[0].availableMana < creature.activated.cost) return;
   const effect = creature.activated.effect;
   const requirements = buildEffectRequirements([effect]);
@@ -326,6 +332,8 @@ export function activateCreatureAbility(creatureId) {
 export function beginTurn(playerIndex) {
   const game = state.game;
   const player = game.players[playerIndex];
+
+  recordTurnStart(playerIndex);
 
   game.players.forEach((p) => {
     p.battlefield.forEach((creature) => {
@@ -424,6 +432,7 @@ export function startGame(color) {
     preventCombatDamageFor: null,
     winner: null,
     dice: rollForInitiative(),
+    stats: createInitialStats(),
   };
   game.currentPlayer = game.dice.winner;
   state.game = game;
