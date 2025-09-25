@@ -1270,6 +1270,13 @@ input {
   font-style: italic;
 }
 
+.card-triggered-preview {
+  font-size: 0.68rem;
+  color: #f6ad55;
+  margin: 0.25rem 0 0 0;
+  font-style: italic;
+}
+
 .ability-button .mana-gem.small {
   width: 18px;
   height: 18px;

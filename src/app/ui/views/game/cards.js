@@ -65,6 +65,10 @@ export function renderCard(card, isHand, game) {
   const activatedAbilityText = card.activated
     ? `<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`
     : '';
+  const triggeredAbilityText =
+    card.passive?.type === 'onAttack' && card.passive?.description
+      ? `<p class="card-triggered-preview">Triggered: ${escapeHtml(card.passive.description)}</p>`
+      : '';
 
   return `
     <div class="${classes.join(' ')}" data-card="${card.instanceId}" data-location="hand">
@@ -76,6 +80,7 @@ export function renderCard(card, isHand, game) {
       <div class="card-body">
         <p class="card-text">${card.text || ''}</p>
         ${activatedAbilityText}
+        ${triggeredAbilityText}
         ${card.type === 'creature' ? renderStatusChips(card, undefined, game) : ''}
       </div>
       ${card.type === 'creature' ? `<div class="card-footer"><span class="stat attack">${baseAttack}</span>/<span class="stat toughness">${baseToughness}</span></div>` : ''}
@@ -98,7 +103,9 @@ export function renderPreviewCard(card) {
   if (card.activated) {
     bodyParts.push(`<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`);
   }
-  if (card.passive?.description) {
+  if (card.passive?.type === 'onAttack' && card.passive?.description) {
+    bodyParts.push(`<p class="card-triggered-preview">Triggered: ${formatText(card.passive.description)}</p>`);
+  } else if (card.passive?.description) {
     bodyParts.push(`<p class="card-passive">${formatText(card.passive.description)}</p>`);
   }
   if (!bodyParts.length) {

@@ -148,7 +148,8 @@ export function renderTargetLines(game) {
       }
       if (!targetId) return '';
       const variantClass = variant ? ` ${variant}` : '';
-      const abilityClass = pending.type === 'ability' ? ' ability' : '';
+      const abilityClass =
+        pending.type === 'ability' || pending.type === 'trigger' ? ' ability' : '';
       return `<line class="target-line${variantClass}${abilityClass}" data-target="${targetId}"${controllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
     })
     .filter(Boolean)
@@ -313,7 +314,6 @@ function renderCreature(creature, controllerIndex, game) {
                        game.players[controllerIndex].availableMana >= creature.activated.cost &&
                        (game.phase === 'main1' || game.phase === 'main2') &&
                        game.currentPlayer === controllerIndex;
-    const isThisAbilityActive = game.pendingAction && game.pendingAction.card?.instanceId === creature.instanceId && game.pendingAction.type === 'ability';
     const abilityName = creature.activated.name ? `${escapeHtml(creature.activated.name)}:` : 'Ability:';
     abilityButtons.push(
       `<div class="ability-row">
@@ -332,37 +332,47 @@ function renderCreature(creature, controllerIndex, game) {
     toughnessClasses.push('damaged');
   }
   const damageChip = damage > 0 ? `<span class="damage-chip">-${damage}</span>` : '';
-  const isThisAbilityActive = controllerIndex === 0 && game.pendingAction && game.pendingAction.card?.instanceId === creature.instanceId && game.pendingAction.type === 'ability';
-  const abilityActions = isThisAbilityActive ? `
-    <div class="creature-ability-actions">
-      <button class="mini cancel" data-action="cancel-action">Cancel</button>
-      ${(() => {
-        const req = game.pendingAction.requirements?.[game.pendingAction.requirementIndex];
-        const selectedCount = game.pendingAction.selectedTargets?.length || 0;
+  const pendingAction = game.pendingAction;
+  const showAbilityActions =
+    controllerIndex === 0 &&
+    pendingAction &&
+    pendingAction.card?.instanceId === creature.instanceId &&
+    (pendingAction.type === 'ability' || pendingAction.type === 'trigger');
+  const abilityActions = showAbilityActions
+    ? (() => {
+        const req = pendingAction.requirements?.[pendingAction.requirementIndex];
+        const selectedCount = pendingAction.selectedTargets?.length || 0;
         const requiredCount = req?.count || 0;
-
-        if (game.pendingAction.awaitingConfirmation || selectedCount >= requiredCount) {
-          return '<button class="mini" data-action="confirm-pending">Choose</button>';
+        const canCancel = pendingAction.cancellable !== false;
+        const chooseEnabled =
+          pendingAction.awaitingConfirmation ||
+          !req ||
+          selectedCount >= requiredCount;
+        const chooseButton = chooseEnabled
+          ? '<button class="mini" data-action="confirm-pending">Choose</button>'
+          : '<button class="mini disabled" disabled>Choose</button>';
+        const cancelButton = canCancel
+          ? '<button class="mini cancel" data-action="cancel-action">Cancel</button>'
+          : '';
+        let statusText;
+        if (!req) {
+          statusText = pendingAction.type === 'trigger' ? 'Triggered ability resolving' : 'Ready to activate';
+        } else if (selectedCount === 0) {
+          statusText = `Select ${requiredCount} target${requiredCount > 1 ? 's' : ''}`;
+        } else {
+          statusText = `${selectedCount}/${requiredCount} selected`;
         }
-        return '<button class="mini disabled" disabled>Choose</button>';
-      })()}
+        return `
+    <div class="creature-ability-actions">
+      ${cancelButton}
+      ${chooseButton}
     </div>
     <div class="ability-status">
-      ${(() => {
-        const req = game.pendingAction.requirements?.[game.pendingAction.requirementIndex];
-        const selectedCount = game.pendingAction.selectedTargets?.length || 0;
-        const requiredCount = req?.count || 0;
-
-        if (!req) {
-          return 'Ready to activate';
-        }
-        if (selectedCount === 0) {
-          return `Select ${requiredCount} target${requiredCount > 1 ? 's' : ''}`;
-        }
-        return `${selectedCount}/${requiredCount} selected`;
-      })()}
+      ${statusText}
     </div>
-  ` : '';
+  `;
+      })()
+    : '';
 
   return `
     <div class="${classes.join(' ')}" data-card="${creature.instanceId}" data-controller="${controllerIndex}">
