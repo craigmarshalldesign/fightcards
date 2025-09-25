@@ -1,6 +1,6 @@
 import { state } from '../state.js';
 import { renderLoading, renderLogin, renderMenu, renderModeSelect, renderColorSelect, renderGameOver } from './views/basicViews.js';
-import { renderGame } from './views/gameView.js';
+import { renderGame } from './views/game/index.js';
 import { attachEventHandlers } from './events.js';
 
 export function renderApp(root) {
