@@ -2,6 +2,7 @@ import { state } from '../state.js';
 import { renderLoading, renderLogin, renderMenu, renderModeSelect, renderColorSelect, renderGameOver } from './views/basicViews.js';
 import { renderGame } from './views/game/index.js';
 import { attachEventHandlers } from './events.js';
+import { enhanceView } from './effects/index.js';
 
 export function renderApp(root) {
   const { screen } = state;
@@ -23,4 +24,5 @@ export function renderApp(root) {
   }
   root.innerHTML = content;
   attachEventHandlers(root);
+  enhanceView(root, screen);
 }

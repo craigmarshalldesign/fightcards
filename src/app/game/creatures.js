@@ -2,6 +2,7 @@ import { createCardInstance } from '../../game/cards/index.js';
 import { requestRender, state } from '../state.js';
 import { addLog, cardSegment, damageSegment, playerSegment, textSegment } from './log.js';
 import { sortHand } from './core/index.js';
+import { recordCreatureLoss, recordDamageToPlayer } from './core/stats.js';
 
 let checkForWinnerHook = () => {};
 
@@ -183,12 +184,14 @@ export function destroyCreature(creature, controllerIndex) {
   }
   delete creature._dying;
   delete creature._destroyScheduled;
+  recordCreatureLoss(controllerIndex);
   player.graveyard.push(creature);
   addLog([cardSegment(creature), textSegment(' dies.')]);
 }
 
 export function dealDamageToPlayer(index, amount) {
   const player = state.game.players[index];
+  recordDamageToPlayer(index, amount);
   player.life -= amount;
   addLog([
     playerSegment(player),

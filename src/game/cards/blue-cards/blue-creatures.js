@@ -6,8 +6,13 @@ export const blueCreatures = [
     cost: 1,
     color: 'blue',
     attack: 1,
-    toughness: 2,
-    text: 'Resilient initiate of the tide.',
+    toughness: 1,
+    passive: {
+      type: 'onAttack',
+      description: 'When Wave Adept attacks, draw a card.',
+      effect: { type: 'draw', amount: 1 },
+    },
+    text: 'Learns from every strike.',
   },
   {
     id: 'blue_creature_2',

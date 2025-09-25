@@ -2,6 +2,7 @@ import { state, requestRender } from '../state.js';
 import { addLog, cardSegment, playerSegment, textSegment } from './log.js';
 import { skipCombat, startTriggerStage } from './combat/index.js';
 import { getCreatureStats } from './creatures.js';
+import { isEligibleAttacker } from './combat/helpers.js';
 
 let helpers = {
   advancePhase: () => {},
@@ -183,7 +184,7 @@ function aiDeclareAttacks() {
   if (!game.combat) {
     return;
   }
-  const attackers = game.players[1].battlefield.filter((c) => c.type === 'creature' && !c.summoningSickness);
+  const attackers = game.players[1].battlefield.filter(isEligibleAttacker);
   if (attackers.length === 0) {
     addLog('No attackers declared.');
     // Allow a beat before skipping combat to make the flow readable
