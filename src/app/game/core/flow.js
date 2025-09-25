@@ -170,6 +170,7 @@ export function handlePassive(card, controllerIndex, trigger) {
   const description = card.passive.description;
   const opponentIndex = controllerIndex === 0 ? 1 : 0;
   const player = state.game.players[controllerIndex];
+  const isOptional = effect.optional === true;
 
   const pending = {
     type: 'trigger',
@@ -180,7 +181,8 @@ export function handlePassive(card, controllerIndex, trigger) {
     requirementIndex: 0,
     selectedTargets: [],
     chosenTargets: {},
-    cancellable: false,
+    cancellable: isOptional ? true : false,
+    optional: isOptional,
     awaitingConfirmation: false,
     isAI: Boolean(player.isAI),
   };

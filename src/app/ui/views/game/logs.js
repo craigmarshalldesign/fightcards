@@ -56,7 +56,7 @@ function renderLogSection({ title, className = '', entries = [], expanded = fals
 
 function renderActiveSpellSlot(game) {
   const pending = game.pendingAction;
-  if (pending && pending.type === 'ability') {
+  if (pending && (pending.type === 'ability' || pending.type === 'trigger')) {
     return `
       <section class="active-spell-panel empty">
         <div class="panel-header">

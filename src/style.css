@@ -858,7 +858,7 @@ input {
   min-height: 140px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: 1fr;
+  grid-auto-rows: auto;
   gap: 0.6rem;
   align-content: start;
   padding: clamp(0.7rem, 1.2vw, 1.05rem);
@@ -889,7 +889,8 @@ input {
 }
 
 .battlefield .card {
-  height: 100%;
+  height: auto;
+  align-self: start;
 }
 
 .card.card-color-red.creature-card {

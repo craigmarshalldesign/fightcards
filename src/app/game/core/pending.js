@@ -183,6 +183,8 @@ export function cancelPendingAction() {
     return;
   }
   const { pendingAction } = game;
+  const wasTrigger = pendingAction.type === 'trigger';
+  const wasOptionalTrigger = wasTrigger && pendingAction.optional;
   if (pendingAction.type === 'summon' && pendingAction.card) {
     const player = game.players[pendingAction.controller];
     player.hand.push(pendingAction.card);
@@ -199,12 +201,23 @@ export function cancelPendingAction() {
   game.pendingAction = null;
   if (pendingAction.type === 'spell') {
     addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')], undefined, 'spell');
+  } else if (wasTrigger && pendingAction.card) {
+    if (wasOptionalTrigger) {
+      addLog([cardSegment(pendingAction.card), textSegment(' ability skipped.')]);
+    } else {
+      addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
+    }
   } else if (pendingAction.card) {
     addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
   } else {
     addLog([textSegment('Action cancelled.')]);
   }
   requestRender();
+  if (wasTrigger) {
+    checkForWinner();
+    continueAIIfNeeded();
+    notifyTriggerResolved();
+  }
 }
 
 export function isTargetableCreature(creature, controller, pending) {

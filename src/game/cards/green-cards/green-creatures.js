@@ -103,8 +103,15 @@ export const greenCreatures = [
     toughness: 4,
     passive: {
       type: 'onAttack',
-      description: 'When it attacks, give another friendly creature +1/+1.',
-      effect: { type: 'buff', target: 'friendly-creature', attack: 1, toughness: 1, excludeSelf: true },
+      description: 'When attacking, you may give another creature a +1/+1 counter.',
+      effect: {
+        type: 'buff',
+        target: 'friendly-creature',
+        attack: 1,
+        toughness: 1,
+        excludeSelf: true,
+        optional: true,
+      },
     },
     text: 'Inspires allies mid-battle.',
   },
