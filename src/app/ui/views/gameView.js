@@ -8,7 +8,7 @@ import {
   canSelectBlocker,
   isAttackingCreature,
   canPlayCard,
-} from '../../game/core.js';
+} from '../../game/core/index.js';
 import { getCreatureStats, hasShimmer } from '../../game/creatures.js';
 import { renderBattlefieldSkin } from './battlefield/index.js';
 import { renderGraveyardModal } from './graveyardView.js';
