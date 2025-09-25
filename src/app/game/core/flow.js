@@ -15,7 +15,7 @@ import {
   skipCombat as skipCombatPhase,
   startCombatStage,
   toggleAttacker,
-} from '../combat.js';
+} from '../combat/index.js';
 import { registerAIHelpers } from '../ai.js';
 import {
   autoSelectTargetsForRequirement,

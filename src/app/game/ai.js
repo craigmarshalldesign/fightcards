@@ -1,6 +1,6 @@
 import { state, requestRender } from '../state.js';
 import { addLog, cardSegment, playerSegment, textSegment } from './log.js';
-import { resolveCombat, skipCombat, triggerAttackPassive } from './combat.js';
+import { resolveCombat, skipCombat, triggerAttackPassive } from './combat/index.js';
 import { getCreatureStats } from './creatures.js';
 
 let helpers = {
