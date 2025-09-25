@@ -103,7 +103,7 @@ function aiPlayTurnStep(aiPlayer) {
     requirements.forEach((req) => {
       const targets = pickTargetsForAI(req, 1);
       const requiredCount = req.count ?? 1;
-      const minimumRequired = req.allowLess ? Math.min(requiredCount, 1) : requiredCount;
+      const minimumRequired = req.allowLess ? 0 : requiredCount;
       if (targets.length < minimumRequired) {
         requirementsSatisfied = false;
       }

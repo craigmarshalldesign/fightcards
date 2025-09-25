@@ -109,7 +109,7 @@ export const blueSpells = [
     cost: 5,
     text: 'Return up to two enemy permanents to hand and draw a card.',
     effects: [
-      { type: 'massBounce', amount: 2 },
+      { type: 'massBounce', target: 'enemy-creature', amount: 2 },
       { type: 'draw', amount: 1 },
     ],
   },

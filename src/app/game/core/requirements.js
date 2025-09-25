@@ -10,7 +10,16 @@ export function createPlayerTarget(controller) {
   return { type: 'player', controller, player };
 }
 
-const TARGETABLE_EFFECT_TYPES = new Set(['bounce', 'buff', 'temporaryBuff', 'freeze', 'heal', 'grantShimmer', 'damage']);
+const TARGETABLE_EFFECT_TYPES = new Set([
+  'bounce',
+  'buff',
+  'temporaryBuff',
+  'freeze',
+  'heal',
+  'grantShimmer',
+  'damage',
+  'massBounce',
+]);
 const FRIENDLY_EFFECT_TYPES = new Set(['buff', 'temporaryBuff', 'heal', 'grantShimmer']);
 const TARGETABLE_TARGETS = new Set(['friendly-creature', 'enemy-creature', 'any-creature', 'creature', 'any']);
 
@@ -68,6 +77,18 @@ export function buildEffectRequirements(effects = []) {
       }
       case 'multiBuff': {
         reqs.push({ ...requirementBase, count: effect.count, target: 'friendly-creature', allowLess: true });
+        break;
+      }
+      case 'massBounce': {
+        if (effect.target === 'enemy-creature' || effect.target == null) {
+          const amount = Number.isFinite(effect.amount) ? effect.amount : 1;
+          reqs.push({
+            ...requirementBase,
+            count: amount,
+            target: 'enemy-creature',
+            allowLess: true,
+          });
+        }
         break;
       }
       case 'heal': {

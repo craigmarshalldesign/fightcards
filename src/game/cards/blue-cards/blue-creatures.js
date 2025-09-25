@@ -80,7 +80,7 @@ export const blueCreatures = [
       description: 'Freeze an enemy creature.',
       effect: { type: 'freeze', target: 'enemy-creature' },
     },
-    text: 'Locks down an enemy for a turn.',
+    text: 'Freezes an enemy when it enters.',
   },
   {
     id: 'blue_creature_7',
@@ -128,9 +128,9 @@ export const blueCreatures = [
     toughness: 7,
     passive: {
       type: 'onEnter',
-      description: "Return up to two enemy creatures to their owner's hand (auto picks strongest).",
-      effect: { type: 'massBounce', amount: 2 },
+      description: "Return up to two enemy creatures to their owner's hand.",
+      effect: { type: 'massBounce', target: 'enemy-creature', amount: 2 },
     },
-    text: 'Massive finisher that sweeps the board.',
+    text: 'Massive finisher that lets you choose which foes to wash away.',
   },
 ];
