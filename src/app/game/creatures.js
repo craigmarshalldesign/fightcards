@@ -107,12 +107,22 @@ export function distributeSplashDamage(opponentIndex, amount) {
 
 export function addTemporaryBuff(creature, attack, toughness) {
   if (!creature.buffs) creature.buffs = [];
-  creature.buffs.push({ attack, toughness, duration: 'endOfTurn' });
+  const atk = Number.isFinite(attack) ? attack : 0;
+  const tough = Number.isFinite(toughness) ? toughness : 0;
+  creature.buffs.push({ attack: atk, toughness: tough, duration: 'endOfTurn', temporary: true });
 }
 
 export function applyPermanentBuff(creature, attack, toughness) {
-  creature.baseAttack += attack;
-  creature.baseToughness += toughness;
+  const atk = Number.isFinite(attack) ? attack : 0;
+  const tough = Number.isFinite(toughness) ? toughness : 0;
+  const currentBaseAttack = Number.isFinite(creature.baseAttack)
+    ? creature.baseAttack
+    : creature.attack ?? 0;
+  const currentBaseToughness = Number.isFinite(creature.baseToughness)
+    ? creature.baseToughness
+    : creature.toughness ?? 0;
+  creature.baseAttack = currentBaseAttack + atk;
+  creature.baseToughness = currentBaseToughness + tough;
 }
 
 export function grantHaste(creature, duration) {
@@ -209,6 +219,54 @@ export function getCreatureStats(creature, controllerIndex, game) {
     }
   });
   return { attack: Math.max(0, attack), toughness: Math.max(1, toughness) };
+}
+
+export function getCounterTotals(creature, controllerIndex, game) {
+  const totals = {
+    permanent: { attack: 0, toughness: 0 },
+    temporary: { attack: 0, toughness: 0 },
+  };
+  if (!creature || creature.type !== 'creature') {
+    return totals;
+  }
+
+  const originalAttack = Number.isFinite(creature.originalAttack) ? creature.originalAttack : creature.attack ?? 0;
+  const originalToughness = Number.isFinite(creature.originalToughness)
+    ? creature.originalToughness
+    : creature.toughness ?? 0;
+  const baseAttack = Number.isFinite(creature.baseAttack) ? creature.baseAttack : creature.attack ?? 0;
+  const baseToughness = Number.isFinite(creature.baseToughness) ? creature.baseToughness : creature.toughness ?? 0;
+
+  totals.permanent.attack += baseAttack - originalAttack;
+  totals.permanent.toughness += baseToughness - originalToughness;
+
+  if (creature.buffs && creature.buffs.length) {
+    creature.buffs.forEach((buff) => {
+      if (!buff) return;
+      const atk = Number.isFinite(buff.attack) ? buff.attack : 0;
+      const tough = Number.isFinite(buff.toughness) ? buff.toughness : 0;
+      if (!atk && !tough) return;
+      if (buff.duration === 'permanent') {
+        totals.permanent.attack += atk;
+        totals.permanent.toughness += tough;
+      } else {
+        totals.temporary.attack += atk;
+        totals.temporary.toughness += tough;
+      }
+    });
+  }
+
+  if (Number.isInteger(controllerIndex) && game) {
+    const stats = getCreatureStats(creature, controllerIndex, game);
+    const auraAttack = stats.attack - (baseAttack + totals.temporary.attack);
+    const auraToughness = stats.toughness - (baseToughness + totals.temporary.toughness);
+    if (auraAttack || auraToughness) {
+      totals.temporary.attack += auraAttack;
+      totals.temporary.toughness += auraToughness;
+    }
+  }
+
+  return totals;
 }
 
 export function checkForDeadCreatures() {

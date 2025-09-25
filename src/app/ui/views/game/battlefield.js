@@ -2,7 +2,7 @@ import { isTargetablePlayer, isTargetableCreature, canSelectBlocker, isAttacking
 import { getCreatureStats } from '../../../game/creatures.js';
 import { renderBattlefieldSkin } from '../battlefield/index.js';
 import { renderStatusChips, getCardColorClass } from './cards.js';
-import { escapeHtml, sanitizeClass } from './shared.js';
+import { escapeHtml, sanitizeClass, getPassivePreviewInfo } from './shared.js';
 
 export function renderBattlefieldSection({ player, opponent, game }) {
   return `
@@ -374,6 +374,13 @@ function renderCreature(creature, controllerIndex, game) {
       })()
     : '';
 
+  const passiveInfo = getPassivePreviewInfo(creature.passive);
+  const passiveMarkup = passiveInfo
+    ? `<p class="card-passive">${passiveInfo.label ? `${escapeHtml(passiveInfo.label)}: ` : ''}${escapeHtml(
+        passiveInfo.description,
+      )}</p>`
+    : '';
+
   return `
     <div class="${classes.join(' ')}" data-card="${creature.instanceId}" data-controller="${controllerIndex}">
       <div class="card-header">
@@ -382,7 +389,7 @@ function renderCreature(creature, controllerIndex, game) {
       </div>
       <div class="card-body">
         <p class="card-text">${creature.text || ''}</p>
-        ${creature.passive ? `<p class="card-passive">${creature.passive.description}</p>` : ''}
+        ${passiveMarkup}
         ${renderStatusChips(creature, controllerIndex, game)}
       </div>
       ${abilityButtons.length ? `<div class="ability">${abilityButtons.join('')}</div>` : ''}

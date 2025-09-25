@@ -1,4 +1,5 @@
 import { state } from '../../state.js';
+import { escapeHtml, getPassivePreviewInfo } from './game/shared.js';
 
 export function renderGraveyardModal(game) {
   const controller = state.ui.openGraveFor;
@@ -27,8 +28,13 @@ export function renderGraveyardModal(game) {
           if (card.activated) {
             bodyParts.push(`<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`);
           }
-          if (card.passive?.type === 'onAttack' && card.passive?.description) {
-            bodyParts.push(`<p class="card-triggered-preview">Triggered: ${escapeHtml(card.passive.description)}</p>`);
+          const passiveInfo = getPassivePreviewInfo(card.passive);
+          if (passiveInfo) {
+            bodyParts.push(
+              `<p class="card-passive-preview">${passiveInfo.label ? `${escapeHtml(passiveInfo.label)}: ` : ''}${escapeHtml(
+                passiveInfo.description,
+              )}</p>`,
+            );
           }
           const body = bodyParts.join('');
           return `
@@ -58,15 +64,3 @@ export function renderGraveyardModal(game) {
     </div>
   `;
 }
-
-function escapeHtml(value) {
-  if (value == null) return '';
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-
