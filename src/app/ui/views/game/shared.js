@@ -17,3 +17,28 @@ export function sanitizeClass(value) {
 export function formatText(value) {
   return escapeHtml(value).replace(/\n/g, '<br>');
 }
+
+export function getPassivePreviewInfo(passive) {
+  if (!passive || !passive.description) {
+    return null;
+  }
+  let label;
+  switch (passive.type) {
+    case 'onEnter':
+      label = 'On Enter';
+      break;
+    case 'onAttack':
+      label = 'Triggered';
+      break;
+    case 'onDeath':
+      label = 'On Death';
+      break;
+    case 'static':
+      label = 'Passive';
+      break;
+    default:
+      label = passive.type ? 'Ability' : '';
+      break;
+  }
+  return { label, description: passive.description };
+}

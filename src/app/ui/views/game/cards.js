@@ -1,6 +1,6 @@
-import { getCreatureStats, hasShimmer } from '../../../game/creatures.js';
+import { getCreatureStats, getCounterTotals, hasShimmer } from '../../../game/creatures.js';
 import { canPlayCard } from '../../../game/core/index.js';
-import { escapeHtml, formatText, sanitizeClass } from './shared.js';
+import { escapeHtml, formatText, sanitizeClass, getPassivePreviewInfo } from './shared.js';
 
 export function getCardColorClass(card) {
   return `card-color-${card?.color ?? 'neutral'}`;
@@ -30,16 +30,20 @@ export function renderStatusChips(card, controllerIndex, game) {
   }
 
   if (inBattlefield) {
-    const stats = getCreatureStats(card, controllerIndex, game);
-    const baseA = card.baseAttack ?? card.attack ?? 0;
-    const baseT = card.baseToughness ?? card.toughness ?? 0;
-    const dA = stats.attack - baseA;
-    const dT = stats.toughness - baseT;
-    if (dA !== 0 || dT !== 0) {
-      const signA = dA >= 0 ? '+' : '';
-      const signT = dT >= 0 ? '+' : '';
-      const label = `${dA !== 0 ? signA + dA : '+0'}/${dT !== 0 ? signT + dT : '+0'}`;
-      chips.push({ label, variant: dA >= 0 && dT >= 0 ? 'buff' : 'debuff' });
+    const counters = getCounterTotals(card, controllerIndex, game);
+    const permanentLabel = formatCounterLabel(counters.permanent);
+    if (permanentLabel) {
+      chips.push({ label: permanentLabel, variant: 'counter-permanent' });
+    }
+    const temporaryLabel = formatCounterLabel(counters.temporary);
+    if (temporaryLabel) {
+      chips.push({ label: temporaryLabel, variant: 'counter-temporary' });
+    }
+  } else {
+    const counters = getCounterTotals(card);
+    const permanentLabel = formatCounterLabel(counters.permanent);
+    if (permanentLabel) {
+      chips.push({ label: permanentLabel, variant: 'counter-permanent' });
     }
   }
 
@@ -47,6 +51,21 @@ export function renderStatusChips(card, controllerIndex, game) {
   return `<div class="status-chips">${chips
     .map((c) => `<span class="status-chip ${sanitizeClass(c.variant)}">${escapeHtml(c.label)}</span>`)
     .join('')}</div>`;
+}
+
+function formatCounterLabel(counter = { attack: 0, toughness: 0 }) {
+  if (!counter) return '';
+  const { attack = 0, toughness = 0 } = counter;
+  if (attack === 0 && toughness === 0) {
+    return '';
+  }
+  return `${formatCounterValue(attack)}/${formatCounterValue(toughness)}`;
+}
+
+function formatCounterValue(value) {
+  if (value > 0) return `+${value}`;
+  if (value < 0) return `${value}`;
+  return '+0';
 }
 
 export function renderCard(card, isHand, game) {
@@ -65,10 +84,12 @@ export function renderCard(card, isHand, game) {
   const activatedAbilityText = card.activated
     ? `<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`
     : '';
-  const triggeredAbilityText =
-    card.passive?.type === 'onAttack' && card.passive?.description
-      ? `<p class="card-triggered-preview">Triggered: ${escapeHtml(card.passive.description)}</p>`
-      : '';
+  const passiveInfo = getPassivePreviewInfo(card.passive);
+  const passiveAbilityText = passiveInfo
+    ? `<p class="card-passive-preview">${passiveInfo.label ? `${escapeHtml(passiveInfo.label)}: ` : ''}${escapeHtml(
+        passiveInfo.description,
+      )}</p>`
+    : '';
 
   return `
     <div class="${classes.join(' ')}" data-card="${card.instanceId}" data-location="hand">
@@ -80,7 +101,7 @@ export function renderCard(card, isHand, game) {
       <div class="card-body">
         <p class="card-text">${card.text || ''}</p>
         ${activatedAbilityText}
-        ${triggeredAbilityText}
+        ${passiveAbilityText}
         ${card.type === 'creature' ? renderStatusChips(card, undefined, game) : ''}
       </div>
       ${card.type === 'creature' ? `<div class="card-footer"><span class="stat attack">${baseAttack}</span>/<span class="stat toughness">${baseToughness}</span></div>` : ''}
@@ -103,10 +124,13 @@ export function renderPreviewCard(card) {
   if (card.activated) {
     bodyParts.push(`<p class="card-ability-preview">${escapeHtml(card.activated.name || 'Ability')}: ${escapeHtml(card.activated.description)}</p>`);
   }
-  if (card.passive?.type === 'onAttack' && card.passive?.description) {
-    bodyParts.push(`<p class="card-triggered-preview">Triggered: ${formatText(card.passive.description)}</p>`);
-  } else if (card.passive?.description) {
-    bodyParts.push(`<p class="card-passive">${formatText(card.passive.description)}</p>`);
+  const passiveInfo = getPassivePreviewInfo(card.passive);
+  if (passiveInfo) {
+    bodyParts.push(
+      `<p class="card-passive-preview">${passiveInfo.label ? `${escapeHtml(passiveInfo.label)}: ` : ''}${formatText(
+        passiveInfo.description,
+      )}</p>`,
+    );
   }
   if (!bodyParts.length) {
     bodyParts.push('<p class="card-text">No abilities.</p>');
