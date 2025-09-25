@@ -1,7 +1,7 @@
 import { createCardInstance } from '../../game/cards/index.js';
 import { requestRender, state } from '../state.js';
 import { addLog, cardSegment, damageSegment, playerSegment, textSegment } from './log.js';
-import { sortHand } from './core.js';
+import { sortHand } from './core/index.js';
 
 let checkForWinnerHook = () => {};
 

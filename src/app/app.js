@@ -1,7 +1,7 @@
 import { registerRenderer, setState, state, db } from './state.js';
 import { renderApp } from './ui/renderRoot.js';
 import { initBackground } from './background.js';
-import { describeGameState } from './game/core.js';
+import { describeGameState } from './game/core/index.js';
 
 export function setupApp(root) {
   root.innerHTML = '';

@@ -8,7 +8,7 @@ import {
   confirmPendingAction,
   cancelPendingAction,
   resolveCombat,
-} from '../game/core.js';
+} from '../game/core/index.js';
 import {
   handleHandCardClick,
   handleCreatureClick,

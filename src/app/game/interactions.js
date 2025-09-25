@@ -8,8 +8,8 @@ import {
   isTargetablePlayer,
   playCreature,
   prepareSpell,
-} from './core.js';
-import { toggleAttacker, selectBlocker, assignBlockerToAttacker } from './core.js';
+} from './core/index.js';
+import { toggleAttacker, selectBlocker, assignBlockerToAttacker } from './core/index.js';
 
 export function handleHandCardClick(cardId) {
   const game = state.game;
