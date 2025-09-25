@@ -119,7 +119,9 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
       break;
     }
     case 'massBounce': {
-      bounceStrongestCreatures(opponentIndex, effect.amount);
+      if (targets.length) {
+        targets.forEach((target) => bounceCreature(target.creature, target.controller));
+      }
       break;
     }
     case 'bounceAttackers': {

@@ -1269,9 +1269,17 @@ input {
 .card-triggered-preview,
 .card-passive-preview {
   font-size: 0.68rem;
-  color: #f97316;
   margin: 0.25rem 0 0 0;
   font-style: italic;
+}
+
+.card-ability-preview {
+  color: #facc15;
+}
+
+.card-triggered-preview,
+.card-passive-preview {
+  color: #f97316;
 }
 
 .ability-button .mana-gem.small {

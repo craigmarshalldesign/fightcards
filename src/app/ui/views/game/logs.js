@@ -94,12 +94,13 @@ function renderActiveSpellSlot(game) {
     : pending?.awaitingConfirmation && confirmedCount > 0
       ? `<div class="target-progress">${confirmedCount} target${confirmedCount === 1 ? '' : 's'} ready</div>`
       : '';
-  const confirmButton = pending?.awaitingConfirmation
+  const isPlayerAction = pending?.controller === 0;
+  const confirmButton = isPlayerAction && pending?.awaitingConfirmation
     ? '<button data-action="confirm-pending" class="confirm">Choose</button>'
-    : requirement?.allowLess
+    : isPlayerAction && requirement?.allowLess
       ? `<button class="mini" data-action="confirm-targets">Confirm Targets (${selectedCount}/${requiredCount})</button>`
       : '';
-  const cancelButton = pending && pending.cancellable !== false
+  const cancelButton = isPlayerAction && pending && pending.cancellable !== false
     ? '<button class="mini cancel" data-action="cancel-action">Cancel</button>'
     : '';
   const cardText = card?.text ? `<p class="active-card-text">${formatText(card.text)}</p>` : '';

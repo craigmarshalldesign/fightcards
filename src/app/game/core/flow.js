@@ -232,9 +232,10 @@ export function handlePassive(card, controllerIndex, trigger) {
         const requiredCount = requirement.count ?? 1;
         const autoTargets = autoSelectTargetsForRequirement(requirement, controllerIndex, card);
         const uniqueChoices = validTargets.length > requiredCount;
-        const canPlayerChoose = requirement.target !== 'any' && isHuman && uniqueChoices && requiredCount > 0;
+        const playerCanChoose =
+          requirement.target !== 'any' && isHuman && uniqueChoices && requiredCount > 0;
 
-        if (canPlayerChoose) {
+        if (isHuman && (requirement.allowLess || playerCanChoose)) {
           needsSelection = true;
           return;
         }
@@ -264,12 +265,13 @@ export function activateCreatureAbility(creatureId) {
   if (!creature || !creature.activated || creature.activatedThisTurn) return;
   if (game.players[0].availableMana < creature.activated.cost) return;
   const effect = creature.activated.effect;
+  const requirements = buildEffectRequirements([effect]);
   const pending = {
     type: 'ability',
     controller: 0,
     card: creature,
     effects: [effect],
-    requirements: buildEffectRequirements([effect]),
+    requirements,
     requirementIndex: 0,
     selectedTargets: [],
     chosenTargets: {},
@@ -278,16 +280,26 @@ export function activateCreatureAbility(creatureId) {
     isAI: false,
   };
 
-  if (!pending.requirements.length) {
+  if (!requirements.length) {
+    const player = game.players[0];
+    spendMana(player, creature.activated.cost ?? 0);
+    creature.activatedThisTurn = true;
+    addLog([
+      playerSegment(player),
+      textSegment(' activates '),
+      cardSegment(creature),
+      textSegment(`'s ${creature.activated.name || 'ability'}.`),
+    ]);
     resolveEffects([effect], {
       controller: 0,
       card: creature,
       requirements: [],
       requirementIndex: 0,
       selectedTargets: [],
-      chosenTargets: {},
+      chosenTargets: { 0: [] },
     });
     requestRender();
+    continueAIIfNeeded();
     return;
   }
 
@@ -296,6 +308,9 @@ export function activateCreatureAbility(creatureId) {
     const requiredCount = req.count ?? 1;
     if (valid.length === 0) {
       pending.chosenTargets[req.effectIndex] = [];
+      return;
+    }
+    if (req.allowLess) {
       return;
     }
     const auto = autoSelectTargetsForRequirement(req, 0, creature);
@@ -311,13 +326,19 @@ export function activateCreatureAbility(creatureId) {
 export function beginTurn(playerIndex) {
   const game = state.game;
   const player = game.players[playerIndex];
+
+  game.players.forEach((p) => {
+    p.battlefield.forEach((creature) => {
+      if (creature.frozenTurns) {
+        creature.frozenTurns = Math.max(0, creature.frozenTurns - 1);
+      }
+    });
+  });
+
   player.maxMana += 1;
   player.availableMana = player.maxMana;
   drawCards(player, 2);
   player.battlefield.forEach((creature) => {
-    if (creature.frozenTurns) {
-      creature.frozenTurns -= 1;
-    }
     creature.summoningSickness = false;
     creature.activatedThisTurn = false;
     if (creature.temporaryHaste) {
