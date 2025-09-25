@@ -1,9 +1,8 @@
 import { state, requestRender } from '../../state.js';
 import { addLog, cardSegment, textSegment } from '../log.js';
-import { triggerAttackPassive } from './passives.js';
 import { buildInitialAttackers, isEligibleAttacker } from './helpers.js';
 import { skipCombat } from './resolution.js';
-import { prepareBlocks } from './blockers.js';
+import { startTriggerStage } from './triggers.js';
 
 export function startCombatStage() {
   const game = state.game;
@@ -16,6 +15,10 @@ export function startCombatStage() {
     attackers:
       currentPlayerIndex === 0 ? buildInitialAttackers(eligibleAttackers, 0) : [],
     stage: 'choose',
+    pendingTriggers: [],
+    activeTrigger: null,
+    resolvingTrigger: false,
+    triggerOptions: null,
   };
   game.blocking = null;
 
@@ -49,7 +52,6 @@ export function toggleAttacker(creature) {
     game.combat.attackers = game.combat.attackers.filter((atk) => atk.creature.instanceId !== creature.instanceId);
   } else {
     game.combat.attackers.push({ creature, controller: 0 });
-    triggerAttackPassive(creature, 0);
   }
   requestRender();
 }
@@ -67,6 +69,5 @@ export function confirmAttackers() {
     return;
   }
   addLog(`Attacking with ${game.combat.attackers.length} creature(s).`);
-  game.combat.stage = 'blockers';
-  prepareBlocks();
+  startTriggerStage();
 }

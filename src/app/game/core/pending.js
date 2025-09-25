@@ -15,6 +15,7 @@ import {
 import { removeFromHand, sortHand, spendMana } from './players.js';
 import { resolveEffects } from './effects.js';
 import { checkForWinner, continueAIIfNeeded } from './runtime.js';
+import { notifyTriggerResolved } from '../combat/triggers.js';
 
 const AI_PENDING_DELAY = 1000;
 
@@ -229,6 +230,7 @@ function resolveTriggeredPending(pending) {
   requestRender();
   checkForWinner();
   continueAIIfNeeded();
+  notifyTriggerResolved();
 }
 
 function executeSpell(pending) {
