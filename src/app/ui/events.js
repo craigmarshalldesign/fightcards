@@ -15,8 +15,69 @@ import {
   activateCreatureAbility,
   handleLifeOrbClick,
 } from '../game/interactions.js';
+import { COLORS } from '../../game/cards/index.js';
+import {
+  addMultiplayerLogEvent,
+  isMultiplayerMatchActive,
+  seedMultiplayerMatch,
+  subscribeToMatch,
+  clearMatch,
+} from '../multiplayer/runtime.js';
+
+const LOBBY_QUERY_LIMIT = 20;
+
+function ensureMultiplayerScreenSubscriptions() {
+  if (state.screen === 'multiplayer-lobbies' && !state.multiplayer.lobbySubscription) {
+    refreshLobbySubscription();
+  }
+  if (state.screen === 'multiplayer-lobby-detail' && state.multiplayer.activeLobby?.id) {
+    ensureActiveLobbySubscription(state.multiplayer.activeLobby.id);
+  }
+}
+
+function ensureActiveLobbySubscription(lobbyId) {
+  if (!lobbyId) return;
+  if (state.multiplayer.activeLobbySubscription) {
+    state.multiplayer.activeLobbySubscription();
+    state.multiplayer.activeLobbySubscription = null;
+  }
+
+  const query = {
+    lobbies: {
+      $: {
+        where: { id: lobbyId },
+        limit: 1,
+      },
+    },
+  };
+
+  const unsubscribe = db.subscribeQuery(query, (snapshot) => {
+    if (snapshot.error) {
+      state.multiplayer.activeLobby = null;
+      state.multiplayer.activeLobbySubscription = null;
+      requestRender();
+      return;
+    }
+    const lobby = snapshot.data?.lobbies?.[0] ?? null;
+    state.multiplayer.activeLobby = lobby;
+    if (!lobby) {
+      state.multiplayer.activeLobbySubscription = null;
+    }
+    requestRender();
+  });
+
+  state.multiplayer.activeLobbySubscription = unsubscribe;
+}
+
+function cleanupActiveLobbySubscription() {
+  if (typeof state.multiplayer.activeLobbySubscription === 'function') {
+    state.multiplayer.activeLobbySubscription();
+  }
+  state.multiplayer.activeLobbySubscription = null;
+}
 
 export function attachEventHandlers(root) {
+  ensureMultiplayerScreenSubscriptions();
   root.querySelectorAll('[data-action="start"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.screen = 'mode-select';
@@ -42,16 +103,18 @@ export function attachEventHandlers(root) {
     });
   });
 
-  const modeBtn = root.querySelector('[data-action="choose-mode"]');
-  if (modeBtn) {
-    modeBtn.addEventListener('click', (event) => {
+  root.querySelectorAll('[data-action="choose-mode"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
       const mode = event.currentTarget.getAttribute('data-mode');
       if (mode === 'ai') {
         state.screen = 'color-select';
         requestRender();
+      } else if (mode === 'multiplayer') {
+        state.screen = 'multiplayer-lobbies';
+        requestRender();
       }
     });
-  }
+  });
 
   root.querySelectorAll('[data-action="select-color"]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -60,12 +123,127 @@ export function attachEventHandlers(root) {
     });
   });
 
+  const backModeSelectBtn = root.querySelector('[data-action="back-mode-select"]');
+  if (backModeSelectBtn) {
+    backModeSelectBtn.addEventListener('click', () => {
+      state.screen = 'mode-select';
+      requestRender();
+    });
+  }
+
+  const lobbySearchInput = root.querySelector('[data-action="search-lobbies"]');
+  if (lobbySearchInput) {
+    lobbySearchInput.addEventListener('input', (event) => {
+      const value = event.target.value ?? '';
+      state.multiplayer.lobbyList.searchTerm = value;
+      requestRender();
+    });
+    lobbySearchInput.addEventListener('change', () => {
+      refreshLobbySubscription();
+    });
+    lobbySearchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        refreshLobbySubscription();
+      }
+    });
+  }
+
+  const clearSearchBtn = root.querySelector('[data-action="clear-search"]');
+  if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+      state.multiplayer.lobbyList.searchTerm = '';
+      refreshLobbySubscription();
+      const input = root.querySelector('[data-action="search-lobbies"]');
+      if (input) {
+        input.value = '';
+      }
+      requestRender();
+    });
+  }
+
+  root.querySelectorAll('[data-action="create-lobby"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await createLobby();
+    });
+  });
+
+  root.querySelectorAll('[data-action="view-lobby"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      const lobbyId = event.currentTarget.getAttribute('data-lobby');
+      if (!lobbyId) return;
+      const lobby = state.multiplayer.lobbyList.lobbies.find((l) => l.id === lobbyId);
+      state.multiplayer.activeLobby = lobby || null;
+      state.screen = 'multiplayer-lobby-detail';
+      ensureActiveLobbySubscription(lobbyId);
+      if (lobby?.matchId) {
+        subscribeToMatch(lobby.matchId);
+      }
+      requestRender();
+    });
+  });
+
+  const backLobbiesBtn = root.querySelector('[data-action="back-lobbies"]');
+  if (backLobbiesBtn) {
+    backLobbiesBtn.addEventListener('click', () => {
+      cleanupActiveLobbySubscription();
+      clearMatch();
+      state.multiplayer.activeLobby = null;
+      state.screen = 'multiplayer-lobbies';
+      requestRender();
+    });
+  }
+
+  root.querySelectorAll('[data-action="claim-seat"]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      const seat = event.currentTarget.getAttribute('data-seat');
+      if (!seat) return;
+      await claimSeat(seat);
+    });
+  });
+
+  root.querySelectorAll('[data-action="leave-seat"]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      const seat = event.currentTarget.getAttribute('data-seat');
+      if (!seat) return;
+      await leaveSeat(seat);
+    });
+  });
+
+  root.querySelectorAll('[data-action="choose-deck"]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      const seat = event.currentTarget.getAttribute('data-seat');
+      const color = event.currentTarget.getAttribute('data-color');
+      if (!seat || !color) return;
+      await chooseDeck(seat, color);
+    });
+  });
+
+  root.querySelectorAll('[data-action="toggle-ready"]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      const seat = event.currentTarget.getAttribute('data-seat');
+      if (!seat) return;
+      await toggleReady(seat);
+    });
+  });
+
+  const startMatchBtn = root.querySelector('[data-action="start-match"]');
+  if (startMatchBtn) {
+    startMatchBtn.addEventListener('click', async () => {
+      await startMatch();
+    });
+  }
+
   const restartBtn = root.querySelector('[data-action="restart"]');
   if (restartBtn) {
     restartBtn.addEventListener('click', () => {
       state.screen = 'color-select';
       requestRender();
     });
+  }
+
+  if (state.screen === 'multiplayer-game' && state.multiplayer.match) {
+    convertMatchToGame();
   }
 
   root.querySelectorAll('[data-action="toggle-battle-log"]').forEach((btn) => {
@@ -125,7 +303,8 @@ export function attachEventHandlers(root) {
 function bindGameEvents(root) {
   root.querySelectorAll('[data-location="hand"]').forEach((cardEl) => {
     cardEl.addEventListener('click', () => {
-      // If there is a pending action, ignore hand clicks entirely
+      if (!canCurrentUserAct()) return;
+      if (state.multiplayer.replayingEvents) return;
       if (state.game?.pendingAction) return;
       const cardId = cardEl.getAttribute('data-card');
       handleHandCardClick(cardId);
@@ -143,7 +322,17 @@ function bindGameEvents(root) {
 
   root.querySelectorAll('[data-action="end-phase"]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (!canCurrentUserAct()) return;
+      if (state.multiplayer.replayingEvents) return;
       advancePhase();
+    });
+  });
+
+  root.querySelectorAll('[data-action="end-turn"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!canCurrentUserAct()) return;
+      if (state.multiplayer.replayingEvents) return;
+      endTurn();
     });
   });
 
@@ -180,12 +369,13 @@ function bindGameEvents(root) {
     });
   }
 
-  const resolveBlocksBtn = root.querySelector('[data-action="declare-blocks"]');
-  if (resolveBlocksBtn) {
-    resolveBlocksBtn.addEventListener('click', () => {
+  root.querySelectorAll('[data-action="declare-blockers"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!canCurrentUserAct()) return;
+      if (state.multiplayer.replayingEvents) return;
       resolveCombat();
     });
-  }
+  });
 
   root.querySelectorAll('[data-action="activate"]').forEach((btn) => {
     btn.addEventListener('click', (event) => {
@@ -285,6 +475,150 @@ function bindGameEvents(root) {
     }),
     { once: true },
   );
+}
+
+async function claimSeat(seat) {
+  const user = state.auth.user;
+  const lobby = state.multiplayer.activeLobby;
+  if (!user || !lobby) return;
+
+  const seatUserKey = seat === 'host' ? 'hostUserId' : 'guestUserId';
+  const seatNameKey = seat === 'host' ? 'hostDisplayName' : 'guestDisplayName';
+  const seatReadyKey = seat === 'host' ? 'hostReady' : 'guestReady';
+  const seatColorKey = seat === 'host' ? 'hostColor' : 'guestColor';
+
+  if (lobby[seatUserKey] && lobby[seatUserKey] !== user.id) {
+    return;
+  }
+
+  const updates = {
+    updatedAt: Date.now(),
+    [seatUserKey]: user.id,
+    [seatNameKey]: deriveDisplayName(user),
+    [seatReadyKey]: false,
+    [seatColorKey]: lobby[seatColorKey] ?? null,
+  };
+
+  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+}
+
+async function leaveSeat(seat) {
+  const lobby = state.multiplayer.activeLobby;
+  const userId = state.auth.user?.id;
+  if (!lobby || !userId) return;
+
+  const seatUserKey = seat === 'host' ? 'hostUserId' : 'guestUserId';
+  if (lobby[seatUserKey] !== userId) return;
+
+  const updates = {
+    updatedAt: Date.now(),
+    [seatUserKey]: null,
+    [seat === 'host' ? 'hostDisplayName' : 'guestDisplayName']: null,
+    [seat === 'host' ? 'hostColor' : 'guestColor']: null,
+    [seat === 'host' ? 'hostReady' : 'guestReady']: false,
+  };
+
+  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+}
+
+async function chooseDeck(seat, color) {
+  const lobby = state.multiplayer.activeLobby;
+  const userId = state.auth.user?.id;
+  if (!lobby || !userId || !COLORS[color]) return;
+
+  const seatUserKey = seat === 'host' ? 'hostUserId' : 'guestUserId';
+  const seatColorKey = seat === 'host' ? 'hostColor' : 'guestColor';
+  const seatReadyKey = seat === 'host' ? 'hostReady' : 'guestReady';
+
+  if (lobby[seatUserKey] !== userId) return;
+
+  const opponentColorKey = seat === 'host' ? lobby.guestColor : lobby.hostColor;
+  if (opponentColorKey === color) {
+    return;
+  }
+
+  const updates = {
+    updatedAt: Date.now(),
+    [seatColorKey]: color,
+    [seatReadyKey]: false,
+  };
+
+  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+}
+
+async function toggleReady(seat) {
+  const lobby = state.multiplayer.activeLobby;
+  const userId = state.auth.user?.id;
+  if (!lobby || !userId) return;
+
+  const seatUserKey = seat === 'host' ? 'hostUserId' : 'guestUserId';
+  const seatReadyKey = seat === 'host' ? 'hostReady' : 'guestReady';
+  const seatColorKey = seat === 'host' ? 'hostColor' : 'guestColor';
+
+  if (lobby[seatUserKey] !== userId) return;
+  if (!lobby[seatColorKey]) return; // must choose a deck first
+
+  const updates = {
+    updatedAt: Date.now(),
+    [seatReadyKey]: !lobby[seatReadyKey],
+  };
+
+  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+}
+
+async function startMatch() {
+  const lobby = state.multiplayer.activeLobby;
+  const userId = state.auth.user?.id;
+  if (!lobby || lobby.hostUserId !== userId) return;
+
+  const ready =
+    lobby.hostUserId &&
+    lobby.guestUserId &&
+    lobby.hostColor &&
+    lobby.guestColor &&
+    lobby.hostReady &&
+    lobby.guestReady;
+
+  if (!ready) return;
+
+  const matchId = await db.getLocalId('matches');
+  const now = Date.now();
+  const diceRolls = {
+    host: 1 + Math.floor(Math.random() * 6),
+    guest: 1 + Math.floor(Math.random() * 6),
+  };
+  let winner = null;
+  if (diceRolls.host !== diceRolls.guest) {
+    winner = diceRolls.host > diceRolls.guest ? 0 : 1;
+  }
+
+  const match = {
+    id: matchId,
+    lobbyId: lobby.id,
+    status: 'starting',
+    activePlayer: winner ?? 0,
+    turn: 1,
+    phase: 'main1',
+    dice: {
+      host: diceRolls.host,
+      guest: diceRolls.guest,
+      winner,
+    },
+    state: null,
+    pendingAction: null,
+    winner: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await db.transact([
+    db.tx.matches[matchId].update(match),
+    db.tx.lobbies[lobby.id].update({
+      matchId,
+      status: 'starting',
+      updatedAt: now,
+    }),
+  ]);
 }
 
 function positionAttackLines(root) {
@@ -409,4 +743,23 @@ function positionTargetLines(root) {
     line.setAttribute('x2', `${endX}`);
     line.setAttribute('y2', `${endY}`);
   });
+}
+
+function canCurrentUserAct() {
+  const match = state.multiplayer.match;
+  if (!match) return true;
+  const userId = state.auth.user?.id;
+  if (!userId) return false;
+  const localSeat = state.multiplayer.localSeat;
+  const localIndex = localSeat === 'guest' ? 1 : 0;
+  const isPendingTarget = Boolean(state.game?.pendingAction && state.game.pendingAction.controller === localIndex);
+  const isActiveTurn = match.activePlayer === localIndex;
+  const game = state.game;
+  const isBlockingTurn = Boolean(
+    game?.combat &&
+      game.combat.stage === 'blockers' &&
+      game.blocking?.awaitingDefender &&
+      localIndex === (game.currentPlayer === 0 ? 1 : 0),
+  );
+  return isActiveTurn || isPendingTarget || isBlockingTurn;
 }

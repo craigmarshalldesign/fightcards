@@ -3,6 +3,11 @@ import { requestRender, state } from '../state.js';
 import { addLog, cardSegment, damageSegment, playerSegment, textSegment } from './log.js';
 import { sortHand } from './core/index.js';
 import { recordCreatureLoss, recordDamageToPlayer } from './core/stats.js';
+import { isMultiplayerMatchActive, enqueueMatchEvent, MULTIPLAYER_EVENT_TYPES } from '../multiplayer/runtime.js';
+
+function cardLite(card) {
+  return card ? { id: card.id, instanceId: card.instanceId } : null;
+}
 
 let checkForWinnerHook = () => {};
 
@@ -52,6 +57,15 @@ export function bounceCreature(creature, controllerIndex) {
   // Tokens are destroyed when they leave the battlefield instead of returning to hand
   if (creature.isToken) {
     addLog([cardSegment(creature), textSegment(' is destroyed (token cannot return to hand).')]);
+    if (isMultiplayerMatchActive()) {
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_PLAYED, {
+        controller: controllerIndex,
+        card: { id: creature.id, instanceId: creature.instanceId },
+        zone: 'graveyard',
+        token: true,
+        reason: 'token-bounce-destroyed',
+      });
+    }
     return;
   }
   
@@ -78,6 +92,14 @@ export function bounceCreature(creature, controllerIndex) {
   player.hand.push(creature);
   sortHand(player);
   addLog([cardSegment(creature), textSegment(' returns to '), playerSegment(player), textSegment("'s hand.")]);
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_PLAYED, {
+      controller: controllerIndex,
+      card: { id: creature.id, instanceId: creature.instanceId },
+      zone: 'hand',
+      reason: 'bounce',
+    });
+  }
 }
 
 export function bounceStrongestCreatures(controllerIndex, amount) {
@@ -145,7 +167,13 @@ export function grantHaste(creature, duration) {
 export function removeFromBattlefield(player, instanceId) {
   const index = player.battlefield.findIndex((c) => c.instanceId === instanceId);
   if (index >= 0) {
-    player.battlefield.splice(index, 1);
+    const [removed] = player.battlefield.splice(index, 1);
+    if (removed && isMultiplayerMatchActive()) {
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_LEFT_BATTLEFIELD, {
+        controller: state.game.players.indexOf(player),
+        card: cardLite(removed),
+      });
+    }
   }
 }
 
@@ -194,6 +222,12 @@ export function destroyCreature(creature, controllerIndex) {
   recordCreatureLoss(controllerIndex);
   player.graveyard.push(creature);
   addLog([cardSegment(creature), textSegment(' dies.')]);
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CREATURE_DESTROYED, {
+      controller: controllerIndex,
+      card: cardLite(creature),
+    });
+  }
 }
 
 export function dealDamageToPlayer(index, amount) {
@@ -206,6 +240,13 @@ export function dealDamageToPlayer(index, amount) {
     damageSegment(amount),
     textSegment(` damage (life ${player.life}).`),
   ]);
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.LIFE_CHANGED, {
+      controller: index,
+      delta: -amount,
+      life: player.life,
+    });
+  }
   checkForWinnerHook();
 }
 

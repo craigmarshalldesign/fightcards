@@ -3,22 +3,29 @@ import { getCreatureStats } from '../../../game/creatures.js';
 import { renderBattlefieldSkin } from '../battlefield/index.js';
 import { renderStatusChips, getCardColorClass } from './cards.js';
 import { escapeHtml, sanitizeClass, getPassivePreviewInfo } from './shared.js';
+import { getLocalSeat } from '../../../multiplayer/runtime.js';
 
 export function renderBattlefieldSection({ player, opponent, game }) {
+  const localSeat = getLocalSeat();
+  const isHostLocal = localSeat === 'host' || !localSeat;
+  const bottomPlayer = isHostLocal ? game.players[0] : game.players[1];
+  const topPlayer = isHostLocal ? game.players[1] : game.players[0];
   return `
     <section class="battlefield-area">
       <div class="battle-row opponent-row">
-        ${renderPlayerBoard(opponent, game, true)}
+        ${renderPlayerBoard(topPlayer, game, true)}
       </div>
       ${renderBattlefieldCrevice()}
       <div class="battle-row player-row">
-        ${renderPlayerBoard(player, game, false)}
+        ${renderPlayerBoard(bottomPlayer, game, false)}
       </div>
     </section>
   `;
 }
 
 export function renderPlayerStatBar(player, game, isOpponent) {
+  const localSeat = getLocalSeat();
+  const isLocal = (localSeat === 'host' && player === game.players[0]) || (localSeat === 'guest' && player === game.players[1]) || (!localSeat && player === game.players[0]);
   const deckCount = player.deck.length;
   const handCount = player.hand.length;
   const graveCount = player.graveyard.length;
@@ -55,7 +62,7 @@ export function renderPlayerStatBar(player, game, isOpponent) {
         <div class="player-identity">
           <div class="player-icon">${renderDeckIcon(player.color)}</div>
           <div class="player-name">${player.name}</div>
-          <div class="player-type">${isOpponent ? 'AI Opponent' : 'You'}</div>
+          <div class="player-type">${isLocal ? 'You' : 'Opponent'}</div>
         </div>
 
         <div class="life-orb-container">

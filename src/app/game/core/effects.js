@@ -15,11 +15,30 @@ import {
 import { addLog, cardSegment, healSegment, playerSegment, textSegment } from '../log.js';
 import { state } from '../../state.js';
 import { drawCards, sortHand } from './players.js';
+import {
+  isMultiplayerMatchActive,
+  enqueueMatchEvent,
+  MULTIPLAYER_EVENT_TYPES,
+} from '../../multiplayer/runtime.js';
+import { cardToEventPayload } from './flow.js';
 
 export function resolveEffects(effects, pending) {
   effects.forEach((effect, idx) => {
     const targets = pending.chosenTargets[idx] || [];
     applyEffect(effect, pending.controller, targets, pending.card);
+    if (isMultiplayerMatchActive()) {
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.EFFECT_RESOLVED, {
+        effectIndex: idx,
+        effect,
+        controller: pending.controller,
+        card: cardToEventPayload(pending.card),
+        targets: targets.map((target) => ({
+          type: target.type,
+          controller: target.controller,
+          creature: target.creature ? cardToEventPayload(target.creature) : undefined,
+        })),
+      });
+    }
   });
 }
 
@@ -48,6 +67,12 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     case 'draw': {
       drawCards(controller, effect.amount);
       addLog([playerSegment(controller), textSegment(` draws ${effect.amount} card(s).`)]);
+      if (isMultiplayerMatchActive()) {
+        enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.DRAW_CARD, {
+          controller: controllerIndex,
+          amount: effect.amount,
+        });
+      }
       break;
     }
     case 'damageAllEnemies': {
@@ -102,6 +127,14 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
       const token = instantiateToken(effect.token, controller.color);
       controller.battlefield.push(token);
       addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
+      if (isMultiplayerMatchActive()) {
+        enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.TOKEN_CREATED, {
+          controller: controllerIndex,
+          card: cardToEventPayload(token),
+          zone: 'battlefield',
+          token: true,
+        });
+      }
       break;
     }
     case 'createMultipleTokens': {
@@ -159,6 +192,13 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     case 'gainLife': {
       controller.life += effect.amount;
       addLog([playerSegment(controller), textSegment(' gains '), healSegment(effect.amount), textSegment(' life.')]);
+       if (isMultiplayerMatchActive()) {
+        enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.LIFE_CHANGED, {
+          controller: controllerIndex,
+          delta: effect.amount,
+          life: controller.life,
+        });
+      }
       break;
     }
     case 'preventCombatDamage': {
@@ -182,6 +222,13 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
         controller.hand.push(revived);
         sortHand(controller);
         addLog([playerSegment(controller), textSegment(' returns '), cardSegment(revived), textSegment(' to hand.')]);
+        if (isMultiplayerMatchActive()) {
+          enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.LOG, {
+            controller: controllerIndex,
+            type: 'revive',
+            card: cardToEventPayload(revived),
+          });
+        }
       }
       break;
     }

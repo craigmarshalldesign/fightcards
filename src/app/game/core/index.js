@@ -29,6 +29,7 @@ export {
   skipCombat,
   startCombatStage,
   toggleAttacker,
+  cardToEventPayload,
 } from './flow.js';
 
 export { drawCards, spendMana, removeFromHand, sortHand, createPlayer } from './players.js';

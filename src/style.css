@@ -541,6 +541,15 @@ input {
   gap: 0.5rem;
 }
 
+.log-header h3,
+.panel-header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+
 .log-scroll {
   flex: 1;
   overflow-y: auto;
@@ -578,21 +587,26 @@ input {
   padding: 0.4rem 0;
 }
 
-.active-spell-panel {
-  background: rgba(15, 18, 32, 0.88);
-  border-radius: 16px;
-  padding: 0.9rem 1.1rem;
-  box-shadow: inset 0 0 0 1px rgba(86, 110, 255, 0.18), 0 12px 28px rgba(0, 0, 0, 0.35);
+/* Active spell panel content area (no scroll) */
+.active-spell-content {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
-  min-height: 180px;
-  position: relative;
+  gap: 0.6rem;
 }
 
-.active-spell-panel.empty {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 28px rgba(0, 0, 0, 0.32);
+/* Invisible button to match header height of other log panels */
+.log-header button.invisible {
+  opacity: 0;
+  pointer-events: none;
+  cursor: default;
 }
+
+/* Expand the active spell panel when it has action buttons */
+.active-spell-panel.has-actions {
+  min-height: 220px;
+}
+
 
 .panel-status {
   font-size: 0.72rem;
@@ -619,6 +633,24 @@ input {
   min-height: 120px;
 }
 
+
+.active-card-placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  text-align: left;
+  color: #e5e8ff;
+}
+
+.active-card-placeholder .name {
+  color: #f8fafc;
+}
+
+.active-placeholder-text {
+  margin: 0;
+  color: rgba(214, 221, 255, 0.8);
+}
+
 .active-spell-body.card-color-red {
   border-color: rgba(249, 115, 22, 0.45);
   box-shadow: inset 0 0 18px rgba(249, 115, 22, 0.18);
@@ -639,6 +671,11 @@ input {
   box-shadow: inset 0 0 18px rgba(251, 191, 36, 0.15);
 }
 
+.active-spell-body.card-color-idle {
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: inset 0 0 18px rgba(148, 163, 184, 0.12);
+}
+
 .active-card-title {
   display: flex;
   justify-content: space-between;
@@ -646,6 +683,11 @@ input {
   gap: 0.5rem;
   font-weight: 600;
   font-size: 0.95rem;
+}
+
+/* Ensure card titles (including No Active Spell) are always white */
+.active-spell-body .active-card-title .name {
+  color: #f8fafc;
 }
 
 .active-card-title .cost {
@@ -2180,6 +2222,277 @@ button.disabled {
   transition: all 0.3s ease;
 }
 
+.phase-indicator {
+  background: linear-gradient(135deg, rgba(21, 27, 44, 0.8), rgba(12, 16, 30, 0.85));
+  border: 2px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.phase-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+  letter-spacing: 0.04em;
+}
+
+.phase-turn {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.phase-active-seat {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.phase-track {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 0.5rem;
+}
+
+.phase-item {
+  flex: 1 1 0;
+}
+
+.phase-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: all 0.3s ease;
+}
+
+.phase-pill .phase-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.4);
+}
+
+.phase-pill.active {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.35), rgba(249, 115, 22, 0.15));
+  border-color: rgba(249, 115, 22, 0.55);
+  color: #fef3c7;
+}
+
+.phase-pill.active .phase-dot {
+  background: #f97316;
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.6);
+}
+
+/* Green styling for active phase during local player's turn */
+.phase-pill.active.local-turn {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.45), rgba(34, 197, 94, 0.25));
+  border-color: rgba(34, 197, 94, 0.7);
+  color: #f0fdf4;
+}
+
+.phase-pill.active.local-turn .phase-dot {
+  background: #16a34a;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
+}
+
+.control-row.attackers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+}
+
+.control-row.attackers button[data-action="skip-combat"][disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.attacker-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.attacker-summary .summary-title {
+  font-weight: 600;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+}
+
+.attacker-summary.empty .summary-description {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.attacker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.attacker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.attacker-item.blocked .combat-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.attacker-item.unblocked .combat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.combat-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.combat-column.attacker .combat-header {
+  color: #f97316;
+}
+
+.combat-column.blocker .combat-header {
+  color: #38bdf8;
+}
+
+.combat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.combat-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.combat-stat-line {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.combat-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.combat-chip.attack {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fb923c;
+}
+
+.combat-chip.toughness {
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+.combat-arrow {
+  font-size: 1.4rem;
+  color: #94a3b8;
+}
+
+.combat-result {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.combat-damage-label {
+  font-size: 0.75rem;
+  color: #cbd5f5;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.damage-chip.defender {
+  background: rgba(249, 115, 22, 0.25);
+  color: #fb923c;
+  min-width: 2rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.damage-chip.defender.zero {
+  background: rgba(148, 163, 184, 0.25);
+  color: #cbd5f5;
+}
+
+.combat-line {
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  font-weight: 500;
+}
+
+.combat-outcome {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.combat-outcome.survives {
+  color: #22c55e;
+}
+
+.combat-outcome.destroyed {
+  color: #f87171;
+}
+
+
+
 .turn-indicator {
   display: flex;
   justify-content: space-between;
@@ -2395,4 +2708,9 @@ button.disabled {
   .hand-area {
     border-radius: 14px;
   }
+}
+
+.combat-detail {
+  font-size: 0.78rem;
+  color: #cbd5f5;
 }

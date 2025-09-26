@@ -3,6 +3,11 @@ import { addLog, cardSegment, playerSegment, textSegment } from '../log.js';
 import { hasShimmer } from '../creatures.js';
 import { resolveCombat } from './resolution.js';
 import { getDefendingPlayerIndex, isBlockerEligible } from './helpers.js';
+import {
+  isMultiplayerMatchActive,
+  enqueueMatchEvent,
+  MULTIPLAYER_EVENT_TYPES,
+} from '../../multiplayer/runtime.js';
 
 export function prepareBlocks() {
   const game = state.game;
@@ -22,13 +27,18 @@ export function prepareBlocks() {
   if (game.players[defending].isAI) {
     aiAssignBlocks();
     requestRender();
-    const AI_UI_DELAY_MS = 1000;
+    const AI_UI_DELAY_MS = 3000;
     setTimeout(() => {
       resolveCombat();
     }, AI_UI_DELAY_MS);
   } else {
     game.blocking.awaitingDefender = true;
     requestRender();
+    if (isMultiplayerMatchActive()) {
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.BLOCKING_STARTED, {
+        defender: defending,
+      });
+    }
   }
 }
 
@@ -59,6 +69,11 @@ export function selectBlocker(creature) {
   game.blocking.selectedBlocker = creature;
   addLog([cardSegment(creature), textSegment(' is ready to block.')]);
   requestRender();
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.BLOCKER_SELECTED, {
+      blocker: { id: creature.id, instanceId: creature.instanceId },
+    });
+  }
 }
 
 export function assignBlockerToAttacker(attackerCreature) {
@@ -112,4 +127,10 @@ export function assignBlockerToAttacker(attackerCreature) {
   game.blocking.selectedBlocker = null;
   addLog([cardSegment(blocker), textSegment(' blocks '), cardSegment(attackerCreature), textSegment('.')]);
   requestRender();
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.BLOCKER_ASSIGNED, {
+      attacker: { id: attackerCreature.id, instanceId: attackerCreature.instanceId },
+      blocker: { id: blocker.id, instanceId: blocker.instanceId },
+    });
+  }
 }

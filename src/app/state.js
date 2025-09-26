@@ -13,6 +13,24 @@ export const initialState = {
     code: '',
     message: null,
   },
+  multiplayer: {
+    lobbyList: {
+      loading: false,
+      error: null,
+      lobbies: [],
+      searchTerm: '',
+    },
+    activeLobby: null,
+    lobbySubscription: null,
+    activeLobbySubscription: null,
+    match: null,
+    matchSubscription: null,
+    matchEvents: [],
+    localSeat: null,
+    currentMatchId: null,
+    lastSequenceApplied: 0,
+    replayingEvents: false,
+  },
   game: null,
   ui: {
     battleLogExpanded: false,
@@ -48,6 +66,29 @@ export function resetEmailLogin() {
 
 export function resetToMenu() {
   state.game = null;
+  state.multiplayer.activeLobby = null;
+  state.multiplayer.match = null;
+  state.multiplayer.lobbyList.loading = false;
+  state.multiplayer.lobbyList.error = null;
+  state.multiplayer.lobbyList.searchTerm = '';
+  if (typeof state.multiplayer.lobbySubscription === 'function') {
+    state.multiplayer.lobbySubscription();
+  }
+  state.multiplayer.lobbySubscription = null;
+  if (typeof state.multiplayer.activeLobbySubscription === 'function') {
+    state.multiplayer.activeLobbySubscription();
+  }
+  state.multiplayer.activeLobbySubscription = null;
+  if (typeof state.multiplayer.matchSubscription === 'function') {
+    state.multiplayer.matchSubscription();
+  }
+  state.multiplayer.matchSubscription = null;
+  state.multiplayer.match = null;
+  state.multiplayer.matchEvents = [];
+  state.multiplayer.localSeat = null;
+  state.multiplayer.currentMatchId = null;
+  state.multiplayer.lastSequenceApplied = 0;
+  state.multiplayer.replayingEvents = false;
   state.screen = 'menu';
   state.ui.previewCard = null;
   requestRender();

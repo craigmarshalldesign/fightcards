@@ -17,6 +17,12 @@ import { resolveEffects } from './effects.js';
 import { checkForWinner, continueAIIfNeeded } from './runtime.js';
 import { notifyTriggerResolved } from '../combat/triggers.js';
 import { recordCardPlay } from './stats.js';
+import {
+  isMultiplayerMatchActive,
+  enqueueMatchEvent,
+  MULTIPLAYER_EVENT_TYPES,
+} from '../../multiplayer/runtime.js';
+import { cardToEventPayload } from './flow.js';
 
 const AI_PENDING_DELAY = 1000;
 
@@ -143,17 +149,24 @@ export function finalizeCurrentRequirement() {
   pending.chosenTargets[requirement.effectIndex] = pending.selectedTargets.map((target) => ({ ...target }));
   pending.selectedTargets = [];
   pending.requirementIndex += 1;
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_UPDATED, {
+      controller: pending.controller,
+      requirementIndex: pending.requirementIndex,
+      chosenTargets: pending.chosenTargets,
+    });
+  }
   if (pending.requirementIndex >= pending.requirements.length) {
     pending.awaitingConfirmation = true;
     requestRender();
     if (pending.isAI) {
       scheduleAIPendingConfirmation(pending);
     }
-  } else {
-    requestRender();
-    if (pending.isAI) {
-      scheduleAIPendingResolution(pending);
-    }
+    return;
+  }
+  requestRender();
+  if (pending.isAI) {
+    scheduleAIPendingResolution(pending);
   }
 }
 
@@ -298,6 +311,15 @@ function executeSpell(pending) {
   requestRender();
   checkForWinner();
   continueAIIfNeeded();
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
+      controller: pending.controller,
+      kind: 'spell',
+      card: cardToEventPayload(pending.card),
+      chosenTargets: pending.chosenTargets,
+      effects: pending.effects,
+    });
+  }
 }
 
 function resolvePendingSummon(pending) {
@@ -317,6 +339,15 @@ function resolvePendingSummon(pending) {
   requestRender();
   checkForWinner();
   continueAIIfNeeded();
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
+      controller: pending.controller,
+      kind: 'summon',
+      card: cardToEventPayload(pending.card),
+      chosenTargets: pending.chosenTargets,
+      effects: pending.effects,
+    });
+  }
 }
 
 function executeAbility(pending) {
@@ -378,5 +409,14 @@ function executeAbility(pending) {
   game.pendingAction = null;
   requestRender();
   continueAIIfNeeded();
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
+      controller: pending.controller,
+      kind: 'ability',
+      card: cardToEventPayload(creature),
+      chosenTargets: pending.chosenTargets,
+      effects: pending.effects,
+    });
+  }
 }
 

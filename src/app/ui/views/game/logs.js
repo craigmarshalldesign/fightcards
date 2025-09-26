@@ -70,7 +70,8 @@ function renderActiveSpellSlot(game) {
   }
   const card = pending?.card;
   const requirement = pending?.requirements?.[pending.requirementIndex];
-  let instruction = 'No active spell.';
+  const hasPending = Boolean(pending);
+  let instruction = '';
   if (pending) {
     if (pending.awaitingConfirmation) {
       instruction = 'Press Choose to resolve the action.';
@@ -105,6 +106,8 @@ function renderActiveSpellSlot(game) {
     : '';
   const cardText = card?.text ? `<p class="active-card-text">${formatText(card.text)}</p>` : '';
   const statusChips = card?.type === 'creature' ? renderStatusChips(card, undefined, game) : '';
+  const bodyClass = card ? `card-color-${sanitizeClass(card.color ?? 'neutral')}` : 'card-color-idle';
+
   const cardMeta = card
     ? `<div class="active-card-title">
         <span class="name">${escapeHtml(card.name ?? 'Unknown Card')}</span>
@@ -113,21 +116,32 @@ function renderActiveSpellSlot(game) {
       <div class="active-card-meta">${renderTypeBadge(card)}</div>
       ${statusChips}
       ${cardText}`
-    : '<p class="active-placeholder-text">Spells will appear here while they resolve.</p>';
+    : `<div class="active-card-title">
+        <span class="name">No Active Spell</span>
+      </div>
+      <div class="active-card-meta">
+        <span class="type-badge neutral">IDLE</span>
+      </div>
+      <p class="active-card-text">Spells will appear here while they resolve.</p>`;
 
   return `
-    <section class="active-spell-panel ${pending ? 'has-active' : 'empty'}">
-      <div class="panel-header">
+    <section class="log-panel active-spell-panel ${hasPending ? 'has-actions' : ''}">
+      <div class="log-header">
         <h3>Active Spell Slot</h3>
+        <button class="mini invisible" aria-hidden="true">View Full Log</button>
       </div>
-      <div class="active-spell-body ${card ? `card-color-${sanitizeClass(card.color ?? 'neutral')}` : ''}">
-        ${cardMeta}
-        <div class="active-instructions">
-          <p>${escapeHtml(instruction)}</p>
-          ${progressLabel}
+      <div class="active-spell-content">
+        <div class="active-spell-body ${bodyClass}">
+          ${cardMeta}
+          ${instruction || progressLabel ? `
+            <div class="active-instructions">
+              <p>${escapeHtml(instruction)}</p>
+              ${progressLabel}
+            </div>
+          ` : ''}
         </div>
+        ${hasPending ? `<div class="active-actions">${cancelButton}${confirmButton}</div>` : ''}
       </div>
-      ${pending ? `<div class="active-actions">${cancelButton}${confirmButton}</div>` : ''}
     </section>
   `;
 }

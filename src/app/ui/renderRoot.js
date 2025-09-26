@@ -1,5 +1,14 @@
 import { state } from '../state.js';
-import { renderLoading, renderLogin, renderMenu, renderModeSelect, renderColorSelect, renderGameOver } from './views/basicViews.js';
+import {
+  renderLoading,
+  renderLogin,
+  renderMenu,
+  renderModeSelect,
+  renderColorSelect,
+  renderGameOver,
+  renderMultiplayerLobby,
+  renderLobbyDetail,
+} from './views/basicViews.js';
 import { renderGame } from './views/game/index.js';
 import { attachEventHandlers } from './events.js';
 import { enhanceView } from './effects/index.js';
@@ -17,6 +26,10 @@ export function renderApp(root) {
     content = renderModeSelect();
   } else if (screen === 'color-select') {
     content = renderColorSelect();
+  } else if (screen === 'multiplayer-lobbies') {
+    content = renderMultiplayerLobby();
+  } else if (screen === 'multiplayer-lobby-detail') {
+    content = renderLobbyDetail();
   } else if (screen === 'game') {
     content = renderGame();
   } else if (screen === 'game-over') {

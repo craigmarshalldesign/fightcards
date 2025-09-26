@@ -3,6 +3,11 @@ import { addLog, cardSegment, textSegment } from '../log.js';
 import { buildInitialAttackers, isEligibleAttacker } from './helpers.js';
 import { skipCombat } from './resolution.js';
 import { startTriggerStage } from './triggers.js';
+import {
+  isMultiplayerMatchActive,
+  enqueueMatchEvent,
+  MULTIPLAYER_EVENT_TYPES,
+} from '../../multiplayer/runtime.js';
 
 export function startCombatStage() {
   const game = state.game;
@@ -31,6 +36,12 @@ export function startCombatStage() {
       addLog('No creatures available to attack.');
     }
   }
+
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.COMBAT_STARTED, {
+      controller: currentPlayerIndex,
+    });
+  }
 }
 
 export function toggleAttacker(creature) {
@@ -40,6 +51,9 @@ export function toggleAttacker(creature) {
     addLog('Attackers have already been declared.');
     requestRender();
     return;
+  }
+  if (!game.combat.attackers) {
+    game.combat.attackers = [];
   }
   if (!isEligibleAttacker(creature)) {
     const reason = creature.frozenTurns > 0 ? ' is frozen and cannot attack this turn.' : ' cannot attack this turn.';
@@ -52,6 +66,12 @@ export function toggleAttacker(creature) {
     game.combat.attackers = game.combat.attackers.filter((atk) => atk.creature.instanceId !== creature.instanceId);
   } else {
     game.combat.attackers.push({ creature, controller: 0 });
+  }
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.ATTACKER_TOGGLED, {
+      creature: { id: creature.id, instanceId: creature.instanceId },
+      selected: !existing,
+    });
   }
   requestRender();
 }
@@ -70,4 +90,12 @@ export function confirmAttackers() {
   }
   addLog(`Attacking with ${game.combat.attackers.length} creature(s).`);
   startTriggerStage();
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.ATTACKERS_CONFIRMED, {
+      attackers: game.combat.attackers.map((attacker) => ({
+        creature: { id: attacker.creature.id, instanceId: attacker.creature.instanceId },
+        controller: attacker.controller,
+      })),
+    });
+  }
 }

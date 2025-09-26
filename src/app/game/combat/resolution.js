@@ -7,9 +7,17 @@ import {
   getCreatureStats,
 } from '../creatures.js';
 import { getDefendingPlayerIndex } from './helpers.js';
+import {
+  isMultiplayerMatchActive,
+  enqueueMatchEvent,
+  MULTIPLAYER_EVENT_TYPES,
+} from '../../multiplayer/runtime.js';
 
 export function skipCombat() {
   const game = state.game;
+  if (game?.combat?.attackers?.length) {
+    game.combat.attackers = [];
+  }
   game.combat = null;
   game.blocking = null;
   game.phase = 'main2';
@@ -25,6 +33,7 @@ export function resolveCombat() {
     return;
   }
   const defendingIndex = getDefendingPlayerIndex(game);
+  const combatLog = [];
   game.combat.attackers.forEach((attacker) => {
     const attackerStats = getCreatureStats(attacker.creature, attacker.controller, game);
     const blocker = game.blocking.assignments[attacker.creature.instanceId];
@@ -41,6 +50,13 @@ export function resolveCombat() {
           ]);
         }
         dealDamageToPlayer(defendingIndex, attackerStats.attack);
+        combatLog.push({
+          type: 'direct',
+          attacker: { id: attacker.creature.id, instanceId: attacker.creature.instanceId },
+          controller: attacker.controller,
+          damage: attackerStats.attack,
+          targetPlayer: defendingIndex,
+        });
       }
       return;
     }
@@ -72,8 +88,21 @@ export function resolveCombat() {
       attacker.controller,
       preventBlockerDamage ? 0 : blockerStats.attack,
     );
+    combatLog.push({
+      type: 'combat',
+      attacker: { id: attacker.creature.id, instanceId: attacker.creature.instanceId },
+      blocker: { id: blocker.id, instanceId: blocker.instanceId },
+      controller: attacker.controller,
+      damageToBlocker: attackerStats.attack,
+      damageToAttacker: preventBlockerDamage ? 0 : blockerStats.attack,
+    });
   });
   checkForDeadCreatures();
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.COMBAT_RESOLVED, {
+      log: combatLog,
+    });
+  }
   game.combat = null;
   game.blocking = null;
   game.phase = 'main2';

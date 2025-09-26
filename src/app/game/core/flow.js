@@ -2,6 +2,13 @@ import { buildDeck, COLORS } from '../../../game/cards/index.js';
 import { addLog, cardSegment, playerSegment, textSegment } from '../log.js';
 import { state, requestRender } from '../../state.js';
 import {
+  addMultiplayerLogEvent,
+  isMultiplayerMatchActive,
+  seedMultiplayerMatch,
+  enqueueMatchEvent,
+  MULTIPLAYER_EVENT_TYPES,
+} from '../../multiplayer/runtime.js';
+import {
   assignBlockerToAttacker,
   canSelectBlocker,
   confirmAttackers,
@@ -49,6 +56,12 @@ import { resolveEffects } from './effects.js';
 import { checkForWinner, continueAIIfNeeded } from './runtime.js';
 import { dealDamageToPlayer, registerWinnerHook } from '../creatures.js';
 import { createInitialStats, recordTurnStart, recordCardPlay } from './stats.js';
+
+function cardToEventPayload(card) {
+  if (!card) return null;
+  const { id, instanceId, name, type, color, cost } = card;
+  return { id, instanceId, name, type, color, cost };
+}
 
 function skipCombatWrapper() {
   skipCombatPhase();
@@ -107,6 +120,14 @@ export function playCreature(playerIndex, card) {
       undefined,
       'spell',
     );
+    if (isMultiplayerMatchActive()) {
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CREATED, {
+        controller: playerIndex,
+        kind: 'summon',
+        card: cardToEventPayload(card),
+        requirements,
+      });
+    }
     requestRender();
     if (player.isAI) {
       scheduleAIPendingResolution(pending);
@@ -119,6 +140,13 @@ export function playCreature(playerIndex, card) {
   // Count this as a creature played immediately when no selection is required
   recordCardPlay(playerIndex, 'creature');
   handlePassive(card, playerIndex, 'onEnter');
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_PLAYED, {
+      controller: playerIndex,
+      card: cardToEventPayload(card),
+      zone: 'battlefield',
+    });
+  }
 }
 
 export function prepareSpell(playerIndex, card, options = {}) {
@@ -152,6 +180,15 @@ export function prepareSpell(playerIndex, card, options = {}) {
   }
   game.pendingAction = pending;
   addLog([playerSegment(player), textSegment(' prepares '), cardSegment(card), textSegment('.')], undefined, 'spell');
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CREATED, {
+      controller: playerIndex,
+      kind: 'spell',
+      card: cardToEventPayload(card),
+      requirements,
+      effects: pending.effects,
+    });
+  }
   if (requirements.length === 0) {
     pending.awaitingConfirmation = true;
     requestRender();
@@ -359,6 +396,13 @@ export function beginTurn(playerIndex) {
   game.phase = 'main1';
   game.preventCombatDamageFor = null;
   game.preventDamageToAttackersFor = null;
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.TURN_STARTED, {
+      turn: game.turn,
+      activePlayer: playerIndex,
+      phase: game.phase,
+    });
+  }
 }
 
 export function advancePhase() {
@@ -372,6 +416,13 @@ export function advancePhase() {
   if (game.phase === 'main1') {
     game.phase = 'combat';
     startCombatStage();
+    if (isMultiplayerMatchActive()) {
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PHASE_CHANGED, {
+        turn: game.turn,
+        activePlayer: game.currentPlayer,
+        phase: game.phase,
+      });
+    }
     requestRender();
   } else if (game.phase === 'combat') {
     skipCombatWrapper();
@@ -436,6 +487,9 @@ export function startGame(color) {
     dice: rollForInitiative(),
     stats: createInitialStats(),
   };
+  if (isMultiplayerMatchActive()) {
+    seedMultiplayerMatch(game);
+  }
   game.currentPlayer = game.dice.winner;
   state.game = game;
   state.screen = 'game';
@@ -449,6 +503,14 @@ export function startGame(color) {
     game,
   );
   addLog(`AI Opponent will wield the ${COLORS[aiColor].name} deck.`, game);
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.MATCH_STARTED, {
+      turn: game.turn,
+      activePlayer: game.currentPlayer,
+      phase: game.phase,
+      dice: game.dice,
+    });
+  }
   drawCards(player, 5);
   drawCards(ai, 5);
   beginTurn(game.currentPlayer);
@@ -505,4 +567,5 @@ export {
   skipCombatWrapper as skipCombat,
   startCombatStage,
   toggleAttacker,
+  cardToEventPayload,
 };
