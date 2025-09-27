@@ -460,7 +460,11 @@ async function claimSeat(seat) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  if (success) {
+    state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
+    requestRender();
+  }
 }
 
 async function leaveSeat(seat) {
@@ -485,7 +489,11 @@ async function leaveSeat(seat) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  if (success) {
+    state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
+    requestRender();
+  }
 }
 
 async function chooseDeck(seat, color) {
@@ -511,7 +519,11 @@ async function chooseDeck(seat, color) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  if (success) {
+    state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
+    requestRender();
+  }
 }
 
 async function toggleReady(seat) {
@@ -532,7 +544,11 @@ async function toggleReady(seat) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  if (success) {
+    state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
+    requestRender();
+  }
 }
 
 async function startMatch() {
@@ -697,37 +713,33 @@ function refreshLobbySubscription() {
   const query = {
     lobbies: {
       $: {
-        where: {
-          or: [
-            { status: { $in: VISIBLE_LOBBY_STATUSES } },
-            { status: { $isNull: true } },
-          ],
-        },
-        order: { serverCreatedAt: 'desc' },
+        order: { updatedAt: 'desc' },
         limit: LOBBY_QUERY_LIMIT,
       },
     },
   };
 
-  const unsubscribe = db.subscribeQuery(query, async (snapshot) => {
-    if (snapshot.error) {
-      state.multiplayer.lobbyList.loading = false;
-      state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
-      state.multiplayer.lobbyList.lobbies = [];
-      requestRender();
-      return;
-    }
+  let unsubscribe;
+  try {
+    unsubscribe = db.subscribeQuery(query, async (snapshot) => {
+      if (snapshot.error) {
+        state.multiplayer.lobbyList.loading = false;
+        state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
+        state.multiplayer.lobbyList.lobbies = [];
+        requestRender();
+        return;
+      }
 
-    const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
-    const snapshotLobbies = (snapshot.data?.lobbies ?? []).map((lobby) => normalizeLobbyRecord(lobby));
-    await maybeCleanupStaleLobbies(snapshotLobbies);
+      const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
+      const snapshotLobbies = (snapshot.data?.lobbies ?? []).map((lobby) => normalizeLobbyRecord(lobby));
+      await maybeCleanupStaleLobbies(snapshotLobbies);
 
-    let lobbies = snapshotLobbies.filter((lobby) => VISIBLE_LOBBY_STATUSES.includes(lobby.status));
-    const statusOrder = {
-      open: 0,
-      ready: 1,
-      starting: 2,
-      playing: 3,
+      let lobbies = snapshotLobbies.filter((lobby) => VISIBLE_LOBBY_STATUSES.includes(lobby.status));
+      const statusOrder = {
+        open: 0,
+        ready: 1,
+        starting: 2,
+        playing: 3,
     };
     lobbies.sort((a, b) => {
       const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
@@ -742,10 +754,17 @@ function refreshLobbySubscription() {
       });
     }
 
-    state.multiplayer.lobbyList.lobbies = lobbies;
+      state.multiplayer.lobbyList.lobbies = lobbies;
+      state.multiplayer.lobbyList.loading = false;
+      requestRender();
+    });
+  } catch (error) {
+    console.error('Failed to subscribe to lobbies', error);
     state.multiplayer.lobbyList.loading = false;
+    state.multiplayer.lobbyList.error = 'Failed to subscribe to lobbies. Please try again.';
     requestRender();
-  });
+    return;
+  }
 
   state.multiplayer.lobbySubscription = unsubscribe;
 }

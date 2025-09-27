@@ -80,8 +80,9 @@ InstantDB validates that entity primary keys are UUID strings. The client uses `
 
 ### Client Lobby Flow
 
-- The lobby browser subscribes to the 20 most recent entries whose `status` is one of `open`, `ready`, `starting`, or `playing`. The InstantDB query filters to those states and sorts by creation time; the client then orders by status and `updatedAt` so newly active rooms bubble to the top of the list.
-- A manual **Refresh** control re-runs the subscription query on demand so players can immediately pull in lobbies created from other devices.
+- The lobby browser subscribes to the 20 most recent entries and sorts them by `updatedAt` (falling back to `createdAt` when missing) so newly active rooms bubble to the top of the list. Filtering to `open`, `ready`, `starting`, and `playing` states now happens client-side to avoid schema validation issues when optional fields are absent.
+- A manual **Refresh** control re-runs the subscription query on demand so players can immediately pull in lobbies created from other devices. Subscription failures surface an inline error allowing players to retry.
+- Seat updates (claiming/leaving, deck choices, ready toggles) optimistically update the local lobby state while the InstantDB transaction completes, ensuring UI controls reflect the current selection immediately.
 - Player name search is performed entirely client-side by matching the lower-cased `hostDisplayName` and `guestDisplayName` fields. The `searchKey` column exists to speed up server-side filtering if rules are added later.
 - Before creating a new lobby, the host deletes any of their previous open rooms that have been idle for 60 seconds. This keeps the listing clean and prevents duplicate "ghost" lobbies from appearing across multiple devices.
 - Joining a lobby installs a dedicated subscription for that record so seat changes, deck picks, and ready states stream into the detail view without polling.
