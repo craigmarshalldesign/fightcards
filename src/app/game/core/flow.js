@@ -22,6 +22,7 @@ import {
   skipCombat as skipCombatPhase,
   startCombatStage,
   toggleAttacker,
+  notifyTriggerResolved,
 } from '../combat/index.js';
 import { registerAIHelpers } from '../ai.js';
 import {
@@ -262,9 +263,13 @@ export function handlePassive(card, controllerIndex, trigger) {
       pending.requirements = requirements;
       const isHuman = !player.isAI;
       let needsSelection = false;
+      let hasAvailableTargets = false;
 
       requirements.forEach((requirement) => {
         const validTargets = getValidTargetsForRequirement(requirement, controllerIndex, card);
+        if (validTargets.length > 0) {
+          hasAvailableTargets = true;
+        }
         if (validTargets.length === 0) {
           pending.chosenTargets[requirement.effectIndex] = [];
           return;
@@ -282,6 +287,15 @@ export function handlePassive(card, controllerIndex, trigger) {
 
         pending.chosenTargets[requirement.effectIndex] = autoTargets.slice(0, requiredCount);
       });
+
+      if (!hasAvailableTargets && isOptional) {
+        addLog([cardSegment(card), textSegment(' ability skipped.')]);
+        requestRender();
+        checkForWinner();
+        continueAIIfNeeded();
+        notifyTriggerResolved();
+        return;
+      }
 
       if (needsSelection) {
         state.game.pendingAction = pending;
