@@ -6,14 +6,20 @@ export const COLORS = {
   red: {
     name: 'Fire',
     theme: 'Aggressive damage and burn spells',
+    accent: '#f97316',
+    accentSoft: 'rgba(249, 115, 22, 0.22)',
   },
   blue: {
     name: 'Water',
     theme: 'Control, bounce, and sturdy creatures',
+    accent: '#60a5fa',
+    accentSoft: 'rgba(96, 165, 250, 0.22)',
   },
   green: {
     name: 'Grass',
     theme: 'Growing your creatures and gaining life',
+    accent: '#34d399',
+    accentSoft: 'rgba(52, 211, 153, 0.22)',
   },
 };
 

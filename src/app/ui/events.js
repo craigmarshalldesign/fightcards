@@ -23,6 +23,7 @@ import {
   subscribeToMatch,
   clearMatch,
 } from '../multiplayer/runtime.js';
+import { generateId } from '../utils/id.js';
 
 const LOBBY_QUERY_LIMIT = 20;
 
@@ -165,6 +166,13 @@ function bindMultiplayerLobbyEvents(root) {
 
     if (action === 'back-lobbies' && state.screen === 'multiplayer-lobby-detail') {
       event.preventDefault();
+      const lobby = state.multiplayer.activeLobby;
+      const userId = state.auth.user?.id;
+      if (lobby && userId) {
+        if (lobby.guestUserId === userId) {
+          await leaveSeat('guest');
+        }
+      }
       cleanupActiveLobbySubscription();
       clearMatch();
       state.multiplayer.activeLobby = null;
@@ -649,7 +657,7 @@ async function startMatch() {
 
   if (!ready) return;
 
-  const matchId = await db.getLocalId('matches');
+  const matchId = generateId('match');
   const now = Date.now();
   const diceRolls = {
     host: 1 + Math.floor(Math.random() * 6),
@@ -886,7 +894,7 @@ async function createLobby() {
   if (!user) return;
 
   try {
-    const lobbyId = await db.getLocalId('lobbies');
+    const lobbyId = generateId('lobby');
     const now = Date.now();
     const displayName = deriveDisplayName(user);
     const lobby = {

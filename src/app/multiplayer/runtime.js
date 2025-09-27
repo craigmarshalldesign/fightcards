@@ -15,6 +15,7 @@ import { dealDamageToPlayer } from '../game/creatures.js';
 import { createCardInstance } from '../../game/cards/index.js';
 import { resolveEffects } from '../game/core/effects.js';
 import { cleanupPending } from '../game/core/pending.js';
+import { generateId } from '../utils/id.js';
 
 const EVENT_TYPES = {
   MATCH_STARTED: 'match-started',
@@ -101,7 +102,7 @@ export async function enqueueMatchEvent(type, payload) {
   const match = state.multiplayer.match;
   const nextSequence = match.nextSequence ?? 1;
   try {
-    const eventId = await db.getLocalId('matchEvents');
+    const eventId = generateId('matchEvent');
     const now = Date.now();
     const ops = [
       db.tx.matchEvents[eventId].update({
