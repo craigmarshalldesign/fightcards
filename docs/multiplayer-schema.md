@@ -26,16 +26,42 @@ export const schema = i.schema({
       createdAt: i.number().optional(),
       updatedAt: i.number().optional(),
     }),
+    matches: i.entity({
+      lobbyId: i.string().optional(),
+      status: i.string().optional(),
+      activePlayer: i.number().optional(),
+      turn: i.number().optional(),
+      phase: i.string().optional(),
+      dice: i.json().optional(),
+      state: i.json().optional(),
+      pendingAction: i.json().optional(),
+      nextSequence: i.number().optional(),
+      createdAt: i.number().optional(),
+      updatedAt: i.number().optional(),
+      hostUserId: i.string().optional(),
+      guestUserId: i.string().optional(),
+    }),
+    matchEvents: i.entity({
+      matchId: i.string().optional(),
+      sequence: i.number().optional(),
+      type: i.string().optional(),
+      payload: i.json().optional(),
+      createdAt: i.number().optional(),
+    }),
   },
   links: {},
   rooms: {},
 });
 ```
 
+### ID Generation
+
+InstantDB validates that entity primary keys are UUID strings. The client uses `crypto.randomUUID()` (with a deterministic fallback for environments that lack the Web Crypto API) via `generateId()` so that lobby, match, and match-event records always satisfy that requirement.
+
 ### `lobbies`
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | Lobby id generated client-side via `generateId('lobby')`. |
+| `id` | string | Lobby id generated client-side via `generateId()`. |
 | `status` | string | `'open' \| 'ready' \| 'starting' \| 'playing' \| 'completed' \| 'abandoned'`; defaults to `'open'`. |
 | `hostUserId` | string | Lobby owner (Instant user id). Empty string means the seat is open. |
 | `hostDisplayName` | string | Cached host name shown in listings. Empty string when unknown. |
@@ -62,7 +88,7 @@ export const schema = i.schema({
 ### `matches`
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | Match id |
+| `id` | string | Match id generated with `generateId()` |
 | `lobbyId` | string | Parent lobby id |
 | `status` | string | `'starting' \| 'in-progress' \| 'completed' \| 'abandoned'` |
 | `activePlayer` | number | Seat index of active player (0 host, 1 guest) |
@@ -74,11 +100,13 @@ export const schema = i.schema({
 | `nextSequence` | number | Next `matchEvents.sequence` to assign |
 | `createdAt` | number | Unix epoch |
 | `updatedAt` | number | Unix epoch |
+| `hostUserId` | string | Host user id cached for quick seat lookups |
+| `guestUserId` | string | Guest user id cached for quick seat lookups |
 
 ### `matchEvents`
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | Event id |
+| `id` | string | Event id generated with `generateId()` |
 | `matchId` | string | Owning match |
 | `sequence` | number | Strictly increasing sequence number |
 | `type` | string | Event type (see below) |
