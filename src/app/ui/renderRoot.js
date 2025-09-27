@@ -6,9 +6,8 @@ import {
   renderModeSelect,
   renderColorSelect,
   renderGameOver,
-  renderMultiplayerLobby,
-  renderLobbyDetail,
 } from './views/basicViews.js';
+import { renderMultiplayerLobby, renderLobbyDetail } from './multiplayer/views.js';
 import { renderGame } from './views/game/index.js';
 import { attachEventHandlers } from './events.js';
 import { enhanceView } from './effects/index.js';
