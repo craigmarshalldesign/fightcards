@@ -8,6 +8,7 @@ const STALE_LOBBY_TIMEOUT_MS = 60_000;
 const LOBBY_CLEANUP_THROTTLE_MS = 5_000;
 const ACTIVE_LOBBY_TTL_MS = 60_000;
 const LOBBY_STORAGE_KEY = 'fightcards:lastLobbyId';
+const VISIBLE_LOBBY_STATUSES = ['open', 'ready', 'starting', 'playing'];
 
 let lastLobbyCleanupCheck = 0;
 let activeLobbyExpiryTimer = null;
@@ -302,6 +303,12 @@ export function attachMultiplayerEventHandlers(root) {
       state.multiplayer.lobbyList.searchTerm = '';
       refreshLobbySubscription();
       requestRender();
+      return;
+    }
+
+    if (action === 'refresh-lobbies' && state.screen === 'multiplayer-lobbies') {
+      event.preventDefault();
+      refreshLobbySubscription();
       return;
     }
 
@@ -690,6 +697,13 @@ function refreshLobbySubscription() {
   const query = {
     lobbies: {
       $: {
+        where: {
+          or: [
+            { status: { $in: VISIBLE_LOBBY_STATUSES } },
+            { status: { $isNull: true } },
+          ],
+        },
+        order: { serverCreatedAt: 'desc' },
         limit: LOBBY_QUERY_LIMIT,
       },
     },
@@ -708,8 +722,7 @@ function refreshLobbySubscription() {
     const snapshotLobbies = (snapshot.data?.lobbies ?? []).map((lobby) => normalizeLobbyRecord(lobby));
     await maybeCleanupStaleLobbies(snapshotLobbies);
 
-    const allowedStatuses = new Set(['open', 'ready', 'starting', 'playing']);
-    let lobbies = snapshotLobbies.filter((lobby) => allowedStatuses.has(lobby.status));
+    let lobbies = snapshotLobbies.filter((lobby) => VISIBLE_LOBBY_STATUSES.includes(lobby.status));
     const statusOrder = {
       open: 0,
       ready: 1,
