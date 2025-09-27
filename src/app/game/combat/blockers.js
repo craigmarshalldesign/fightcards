@@ -21,7 +21,12 @@ export function prepareBlocks() {
   const defenders = game.players[defending].battlefield.filter((creature) => creature.type === 'creature');
   if (defenders.length === 0) {
     addLog([playerSegment(game.players[defending]), textSegment(' has no blockers.')]);
-    resolveCombat();
+    if (game.players[defending].isAI) {
+      resolveCombat();
+      return;
+    }
+    game.blocking.awaitingDefender = true;
+    requestRender();
     return;
   }
   if (game.players[defending].isAI) {

@@ -155,12 +155,13 @@ export function renderGameControls({
   if (!game) return '';
   const localSeatIndex = getLocalSeatIndex();
   const isLocalTurn = game.currentPlayer === localSeatIndex;
+  const phaseLocked = Boolean(game.pendingAction);
 
   let mainButtonLabel = 'Next Phase';
   let showPhaseButton = showPhaseControls;
   switch (game.phase) {
     case 'main1':
-    mainButtonLabel = 'Go to Combat';
+      mainButtonLabel = 'Go to Combat';
       break;
     case 'main2':
       mainButtonLabel = 'End Turn';
@@ -172,10 +173,11 @@ export function renderGameControls({
       break;
   }
 
+  const declareBlockersDisabled = !canDeclareBlockers || phaseLocked;
   const blockingControls = shouldShowBlocking
     ? `
         <div class="control-row blockers">
-          <button class="primary" data-action="declare-blockers" ${canDeclareBlockers ? '' : 'disabled'}>Declare Blockers</button>
+          <button class="primary ${declareBlockersDisabled ? 'disabled' : ''}" data-action="declare-blockers" ${declareBlockersDisabled ? 'disabled' : ''}>Declare Blockers</button>
         </div>
       `
     : '';
@@ -200,10 +202,11 @@ export function renderGameControls({
       `
     : '';
 
+  const phaseButtonDisabled = !isLocalTurn || phaseLocked;
   const phaseControls = showPhaseButton
     ? `
         <div class="control-row phases">
-          <button class="primary" data-action="end-phase" ${!isLocalTurn ? 'disabled' : ''}>${mainButtonLabel}</button>
+          <button class="primary ${phaseButtonDisabled ? 'disabled' : ''}" data-action="end-phase" ${phaseButtonDisabled ? 'disabled' : ''}>${mainButtonLabel}</button>
         </div>
       `
     : '';
