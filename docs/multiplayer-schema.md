@@ -2,6 +2,43 @@
 
 Multiplayer relies on deterministic, append-only events stored in InstantDB. This document describes the data model used by the client and the recommended rules to enforce fair play.
 
+## Current InstantDB Schema
+
+```ts
+import { i } from '@instantdb/core';
+
+const schema = i.schema({
+  entities: {
+    $files: i.entity({
+      path: i.string().unique().indexed(),
+      url: i.string().optional(),
+    }),
+    $users: i.entity({
+      email: i.string().unique().indexed().optional(),
+    }),
+    lobbies: i.entity({
+      createdAt: i.number().optional(),
+      guestColor: i.any().optional(),
+      guestDisplayName: i.any().optional(),
+      guestReady: i.boolean().optional(),
+      guestUserId: i.any().optional(),
+      hostColor: i.string().optional(),
+      hostDisplayName: i.string().optional(),
+      hostReady: i.boolean().optional(),
+      hostUserId: i.string().optional(),
+      matchId: i.any().optional(),
+      searchKey: i.string().optional(),
+      status: i.string().optional(),
+      updatedAt: i.number().optional(),
+    }),
+  },
+  links: {},
+  rooms: {},
+});
+```
+
+> **Note:** The `$files` and `$users` namespaces are created by InstantDB for storage and authentication metadata. Game logic only reads and writes to the `lobbies` namespace, so the `$` prefix is not an issue for lobby creation.
+
 ## Entities Overview
 
 ### `lobbies`

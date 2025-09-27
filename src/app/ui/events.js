@@ -22,10 +22,15 @@ import {
   seedMultiplayerMatch,
   subscribeToMatch,
   clearMatch,
+  MULTIPLAYER_EVENT_TYPES,
 } from '../multiplayer/runtime.js';
 import { generateId } from '../utils/id.js';
 
 const LOBBY_QUERY_LIMIT = 20;
+const STALE_LOBBY_TIMEOUT_MS = 60_000;
+const LOBBY_CLEANUP_THROTTLE_MS = 5_000;
+
+let lastLobbyCleanupCheck = 0;
 
 function ensureMultiplayerScreenSubscriptions() {
   if (state.screen === 'multiplayer-lobbies' && !state.multiplayer.lobbySubscription) {
@@ -570,9 +575,9 @@ async function claimSeat(seat) {
   const updates = {
     updatedAt: Date.now(),
     [seatUserKey]: user.id,
-    [seatNameKey]: deriveDisplayName(user),
+    [seatNameKey]: deriveDisplayName(user).trim() || 'Player',
     [seatReadyKey]: false,
-    [seatColorKey]: lobby[seatColorKey] ?? null,
+    [seatColorKey]: typeof lobby[seatColorKey] === 'string' ? lobby[seatColorKey] : '',
   };
 
   await db.transact(db.tx.lobbies[lobby.id].update(updates));
@@ -588,9 +593,9 @@ async function leaveSeat(seat) {
 
   const updates = {
     updatedAt: Date.now(),
-    [seatUserKey]: null,
-    [seat === 'host' ? 'hostDisplayName' : 'guestDisplayName']: null,
-    [seat === 'host' ? 'hostColor' : 'guestColor']: null,
+    [seatUserKey]: '',
+    [seat === 'host' ? 'hostDisplayName' : 'guestDisplayName']: '',
+    [seat === 'host' ? 'hostColor' : 'guestColor']: '',
     [seat === 'host' ? 'hostReady' : 'guestReady']: false,
   };
 
@@ -658,6 +663,7 @@ async function startMatch() {
   if (!ready) return;
 
   const matchId = generateId('match');
+  const eventId = generateId('matchEvent');
   const now = Date.now();
   const diceRolls = {
     host: 1 + Math.floor(Math.random() * 6),
@@ -668,11 +674,12 @@ async function startMatch() {
     winner = diceRolls.host > diceRolls.guest ? 0 : 1;
   }
 
+  const activePlayer = winner ?? 0;
   const match = {
     id: matchId,
     lobbyId: lobby.id,
     status: 'starting',
-    activePlayer: winner ?? 0,
+    activePlayer,
     turn: 1,
     phase: 'main1',
     dice: {
@@ -683,18 +690,50 @@ async function startMatch() {
     state: null,
     pendingAction: null,
     winner: null,
+    nextSequence: 2,
     createdAt: now,
     updatedAt: now,
   };
 
-  await db.transact([
-    db.tx.matches[matchId].update(match),
-    db.tx.lobbies[lobby.id].update({
+  const matchStartedEvent = {
+    id: eventId,
+    matchId,
+    sequence: 1,
+    type: MULTIPLAYER_EVENT_TYPES.MATCH_STARTED,
+    payload: {
+      turn: 1,
+      activePlayer,
+      phase: 'main1',
+      dice: { ...match.dice },
+    },
+    createdAt: now,
+  };
+
+  try {
+    state.multiplayer.lobbyList.error = null;
+    await db.transact([
+      db.tx.matches[matchId].update(match),
+      db.tx.matchEvents[eventId].update(matchStartedEvent),
+      db.tx.lobbies[lobby.id].update({
+        matchId,
+        status: 'starting',
+        updatedAt: now,
+      }),
+    ]);
+
+    state.multiplayer.activeLobby = {
+      ...lobby,
       matchId,
       status: 'starting',
       updatedAt: now,
-    }),
-  ]);
+    };
+    subscribeToMatch(matchId);
+    requestRender();
+  } catch (error) {
+    console.error('Failed to start match', error);
+    state.multiplayer.lobbyList.error = 'Could not start the match. Please try again.';
+    requestRender();
+  }
 }
 
 function positionAttackLines(root) {
@@ -840,6 +879,44 @@ function canCurrentUserAct() {
   return isActiveTurn || isPendingTarget || isBlockingTurn;
 }
 
+function maybeCleanupStaleLobbies(lobbies) {
+  const now = Date.now();
+  if (now - lastLobbyCleanupCheck < LOBBY_CLEANUP_THROTTLE_MS) {
+    return;
+  }
+
+  const userId = state.auth.user?.id ?? null;
+  let deletedAny = false;
+
+  for (const lobby of lobbies) {
+    if (!lobby) continue;
+    if (lobby.matchId) continue;
+
+    const status = lobby.status || 'open';
+    if (status !== 'open' && status !== 'ready') continue;
+
+    const hasGuest = Boolean(lobby.guestUserId);
+    if (hasGuest) continue;
+
+    const lastUpdated = lobby.updatedAt ?? lobby.createdAt ?? 0;
+    if (!lastUpdated) continue;
+
+    if (now - lastUpdated < STALE_LOBBY_TIMEOUT_MS) continue;
+
+    const canDelete = Boolean(!lobby.hostUserId || (userId && lobby.hostUserId === userId));
+    if (!canDelete) continue;
+
+    db
+      .transact(db.tx.lobbies[lobby.id].delete())
+      .catch((error) => console.error('Failed to delete stale lobby', lobby.id, error));
+    deletedAny = true;
+  }
+
+  if (deletedAny) {
+    lastLobbyCleanupCheck = now;
+  }
+}
+
 function refreshLobbySubscription() {
   cleanupLobbyListSubscription();
 
@@ -872,7 +949,10 @@ function refreshLobbySubscription() {
     }
 
     const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
-    let lobbies = snapshot.data?.lobbies ?? [];
+    const snapshotLobbies = snapshot.data?.lobbies ?? [];
+    maybeCleanupStaleLobbies(snapshotLobbies);
+
+    let lobbies = snapshotLobbies;
     if (searchTerm) {
       lobbies = lobbies.filter((lobby) => {
         const host = (lobby.hostDisplayName || '').toLowerCase();
@@ -891,38 +971,51 @@ function refreshLobbySubscription() {
 
 async function createLobby() {
   const user = state.auth.user;
-  if (!user) return;
+  if (!user) {
+    state.multiplayer.lobbyList.error = 'You must be signed in to create a lobby.';
+    requestRender();
+    return;
+  }
 
   try {
     const lobbyId = generateId('lobby');
     const now = Date.now();
     const displayName = deriveDisplayName(user);
-    const lobby = {
+    const normalizedName = displayName.trim() || 'Player';
+    state.multiplayer.lobbyList.error = null;
+
+    const lobbyPayload = {
       id: lobbyId,
       status: 'open',
       hostUserId: user.id,
-      hostDisplayName: displayName,
-      hostColor: null,
+      hostDisplayName: normalizedName,
       hostReady: false,
-      guestUserId: null,
-      guestDisplayName: null,
-      guestColor: null,
-      guestReady: false,
-      searchKey: displayName.toLowerCase(),
-      matchId: null,
+      searchKey: normalizedName.toLowerCase(),
       createdAt: now,
       updatedAt: now,
     };
 
-    await db.transact(db.tx.lobbies[lobbyId].update(lobby));
+    await db.transact(db.tx.lobbies[lobbyId].update(lobbyPayload));
+
+    const localLobby = {
+      hostColor: '',
+      guestUserId: '',
+      guestDisplayName: '',
+      guestColor: '',
+      guestReady: false,
+      matchId: '',
+      ...lobbyPayload,
+    };
+
     cleanupActiveLobbySubscription();
-    state.multiplayer.activeLobby = lobby;
+    state.multiplayer.activeLobby = localLobby;
     state.screen = 'multiplayer-lobby-detail';
     ensureActiveLobbySubscription(lobbyId);
     requestRender();
   } catch (error) {
     console.error('Failed to create lobby', error);
-    state.multiplayer.lobbyList.error = 'Could not create lobby. Please try again.';
+    const message = error?.body?.message || 'Could not create lobby. Please try again.';
+    state.multiplayer.lobbyList.error = message;
     requestRender();
   }
 }
