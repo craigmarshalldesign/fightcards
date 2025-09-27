@@ -6,6 +6,7 @@ import '../views/basicViews.css';
 export function renderMultiplayerLobby() {
   const { lobbyList } = state.multiplayer;
   const { loading, error, lobbies, searchTerm } = lobbyList;
+  const refreshDisabled = loading ? 'disabled' : '';
   const lobbyItems = lobbies
     .map((lobby) => {
       const hostName = escapeHtml(lobby.hostDisplayName || 'Unknown');
@@ -59,7 +60,10 @@ export function renderMultiplayerLobby() {
             />
             <button class="ghost mini" data-action="clear-search" ${searchTerm ? '' : 'disabled'}>Clear</button>
           </div>
-          <button class="primary" data-action="create-lobby">Create Lobby</button>
+          <div class="toolbar-actions">
+            <button class="ghost mini" data-action="refresh-lobbies" ${refreshDisabled}>Refresh</button>
+            <button class="primary" data-action="create-lobby">Create Lobby</button>
+          </div>
         </div>
         <div class="lobby-content">
           ${loading ? '<p class="info">Loading lobbies...</p>' : ''}
@@ -108,7 +112,7 @@ export function renderLobbyDetail() {
   if (!activeLobby.guestUserId || isGuestUser) {
     return renderGuestLobbyDetail(activeLobby, lobbyTitle, statusLabel, isGuestUser);
   }
-  return renderSpectatorLobbyDetail(activeLobby, lobbyTitle, statusLabel);
+  return renderLockedLobbyDetail(activeLobby, lobbyTitle, statusLabel);
 }
 
 function renderHostLobbyDetail(lobby, lobbyTitle, statusLabel) {
@@ -311,7 +315,7 @@ function renderGuestLobbyDetail(lobby, lobbyTitle, statusLabel, isGuestUser) {
   `;
 }
 
-function renderSpectatorLobbyDetail(lobby, lobbyTitle, statusLabel) {
+function renderLockedLobbyDetail(lobby, lobbyTitle, statusLabel) {
   const hostDeck = lobby.hostColor
     ? escapeHtml(COLORS[lobby.hostColor]?.name || lobby.hostColor)
     : 'Not selected';
@@ -327,11 +331,12 @@ function renderSpectatorLobbyDetail(lobby, lobbyTitle, statusLabel) {
       </div>
       <div class="hero-panel wide lobby-panel">
         <div class="hero-header">
-          <span class="hero-kicker">Lobby Full</span>
+          <span class="hero-kicker">Lobby Locked</span>
           <h2>${lobbyTitle}</h2>
           <p>Status: ${statusLabel}</p>
+          <p>Both seats are filled. Join another lobby or create your own duel.</p>
         </div>
-        <div class="lobby-detail-columns spectator">
+        <div class="lobby-detail-columns">
           <section class="lobby-card opponent-card ready">
             <header>
               <h3>Host</h3>
@@ -352,7 +357,7 @@ function renderSpectatorLobbyDetail(lobby, lobbyTitle, statusLabel) {
         </div>
         <div class="lobby-detail-footer">
           <span class="ready-icon" aria-hidden="true">⚔️</span>
-          <span class="ready-text">Both seats are filled. Try another lobby or create your own.</span>
+          <span class="ready-text">This lobby is full. Browse the list for another match or host your own.</span>
         </div>
       </div>
     </div>
