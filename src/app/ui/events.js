@@ -55,13 +55,36 @@ function ensureActiveLobbySubscription(lobbyId) {
     if (snapshot.error) {
       state.multiplayer.activeLobby = null;
       state.multiplayer.activeLobbySubscription = null;
+      clearMatch();
       requestRender();
       return;
     }
+    const previousLobby = state.multiplayer.activeLobby;
     const lobby = snapshot.data?.lobbies?.[0] ?? null;
     state.multiplayer.activeLobby = lobby;
     if (!lobby) {
       state.multiplayer.activeLobbySubscription = null;
+      clearMatch();
+      if (state.screen === 'multiplayer-lobby-detail') {
+        state.screen = 'multiplayer-lobbies';
+      }
+      requestRender();
+      return;
+    }
+
+    const matchId = lobby.matchId ?? null;
+    if (matchId && matchId !== state.multiplayer.currentMatchId) {
+      subscribeToMatch(matchId);
+    } else if (!matchId && state.multiplayer.currentMatchId) {
+      clearMatch();
+    }
+
+    const userId = state.auth.user?.id;
+    const userInLobby = Boolean(userId && (lobby.hostUserId === userId || lobby.guestUserId === userId));
+    if (matchId && userInLobby) {
+      state.screen = 'game';
+    } else if (!matchId && previousLobby?.matchId && userInLobby && state.screen === 'game') {
+      state.screen = 'multiplayer-lobby-detail';
     }
     requestRender();
   });
@@ -242,7 +265,7 @@ export function attachEventHandlers(root) {
     });
   }
 
-  if (state.screen === 'multiplayer-game' && state.multiplayer.match) {
+  if (state.multiplayer.match && state.screen !== 'game' && state.screen !== 'game-over') {
     convertMatchToGame();
   }
 
@@ -762,4 +785,118 @@ function canCurrentUserAct() {
       localIndex === (game.currentPlayer === 0 ? 1 : 0),
   );
   return isActiveTurn || isPendingTarget || isBlockingTurn;
+}
+
+function refreshLobbySubscription() {
+  if (typeof state.multiplayer.lobbySubscription === 'function') {
+    state.multiplayer.lobbySubscription();
+    state.multiplayer.lobbySubscription = null;
+  }
+
+  state.multiplayer.lobbyList.loading = true;
+  state.multiplayer.lobbyList.error = null;
+  requestRender();
+
+  const query = {
+    lobbies: {
+      $: {
+        where: {
+          status: { $in: ['open', 'ready', 'starting', 'playing'] },
+        },
+        orderBy: [
+          { field: 'status', direction: 'asc' },
+          { field: 'updatedAt', direction: 'desc' },
+        ],
+        limit: LOBBY_QUERY_LIMIT,
+      },
+    },
+  };
+
+  const unsubscribe = db.subscribeQuery(query, (snapshot) => {
+    if (snapshot.error) {
+      state.multiplayer.lobbyList.loading = false;
+      state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
+      state.multiplayer.lobbyList.lobbies = [];
+      requestRender();
+      return;
+    }
+
+    const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
+    let lobbies = snapshot.data?.lobbies ?? [];
+    if (searchTerm) {
+      lobbies = lobbies.filter((lobby) => {
+        const host = (lobby.hostDisplayName || '').toLowerCase();
+        const guest = (lobby.guestDisplayName || '').toLowerCase();
+        return host.includes(searchTerm) || guest.includes(searchTerm);
+      });
+    }
+
+    state.multiplayer.lobbyList.lobbies = lobbies;
+    state.multiplayer.lobbyList.loading = false;
+    requestRender();
+  });
+
+  state.multiplayer.lobbySubscription = unsubscribe;
+}
+
+async function createLobby() {
+  const user = state.auth.user;
+  if (!user) return;
+
+  try {
+    const lobbyId = await db.getLocalId('lobbies');
+    const now = Date.now();
+    const displayName = deriveDisplayName(user);
+    const lobby = {
+      id: lobbyId,
+      status: 'open',
+      hostUserId: user.id,
+      hostDisplayName: displayName,
+      hostColor: null,
+      hostReady: false,
+      guestUserId: null,
+      guestDisplayName: null,
+      guestColor: null,
+      guestReady: false,
+      searchKey: displayName.toLowerCase(),
+      matchId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.transact(db.tx.lobbies[lobbyId].update(lobby));
+    cleanupActiveLobbySubscription();
+    state.multiplayer.activeLobby = lobby;
+    state.screen = 'multiplayer-lobby-detail';
+    ensureActiveLobbySubscription(lobbyId);
+    requestRender();
+  } catch (error) {
+    console.error('Failed to create lobby', error);
+    state.multiplayer.lobbyList.error = 'Could not create lobby. Please try again.';
+    requestRender();
+  }
+}
+
+function convertMatchToGame() {
+  if (!state.multiplayer.match) return;
+  state.game = null;
+  state.screen = 'game';
+  requestRender();
+}
+
+function deriveDisplayName(user) {
+  if (!user) return 'Player';
+  if (typeof user.displayName === 'string' && user.displayName.trim()) {
+    return user.displayName.trim();
+  }
+  if (typeof user.username === 'string' && user.username.trim()) {
+    return user.username.trim();
+  }
+  if (typeof user.name === 'string' && user.name.trim()) {
+    return user.name.trim();
+  }
+  if (typeof user.email === 'string' && user.email.includes('@')) {
+    return user.email.split('@')[0];
+  }
+  return 'Player';
 }

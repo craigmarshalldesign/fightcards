@@ -23,6 +23,7 @@ export const initialState = {
     activeLobby: null,
     lobbySubscription: null,
     activeLobbySubscription: null,
+    cardCache: null,
     match: null,
     matchSubscription: null,
     matchEvents: [],
