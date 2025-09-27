@@ -84,6 +84,9 @@ InstantDB validates that entity primary keys are UUID strings. The client uses `
 - Player name search is performed entirely client-side by matching the lower-cased `hostDisplayName` and `guestDisplayName` fields. The `searchKey` column exists to speed up server-side filtering if rules are added later.
 - Before creating a new lobby, the host deletes any of their previous open rooms that have been idle for 60 seconds. This keeps the listing clean and prevents duplicate "ghost" lobbies from appearing across multiple devices.
 - Joining a lobby installs a dedicated subscription for that record so seat changes, deck picks, and ready states stream into the detail view without polling.
+- Hosts immediately delete their lobby if they navigate back to the lobby list, refresh the page, or start a match. A 60 second TTL (tracked via `updatedAt`) also removes abandoned lobbies if the client disconnects unexpectedly.
+- The client stores the most recent lobby id in `localStorage` so it can be cleaned up automatically after a crash or refresh when the player signs back in.
+- The lobby detail screen renders distinct experiences: the host sees only their deck selection plus an opponent status panel, while guests see host readiness alongside their own deck picker. Spectators are informed when both seats are filled.
 
 ### `matches`
 | Field | Type | Description |

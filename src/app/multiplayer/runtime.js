@@ -141,7 +141,7 @@ export function subscribeToMatch(matchId) {
     matchEvents: {
       $: {
         where: { matchId },
-        orderBy: [{ field: 'sequence', direction: 'asc' }],
+        limit: 1000,
       },
     },
   };
@@ -159,7 +159,12 @@ export function subscribeToMatch(matchId) {
     if (match) {
       ensureLocalSeat(match);
       ensureCardCache();
-      state.multiplayer.matchEvents = snapshot.data?.matchEvents ?? [];
+      const orderedEvents = [...(snapshot.data?.matchEvents ?? [])].sort((a, b) => {
+        const aSeq = typeof a.sequence === 'number' ? a.sequence : 0;
+        const bSeq = typeof b.sequence === 'number' ? b.sequence : 0;
+        return aSeq - bSeq;
+      });
+      state.multiplayer.matchEvents = orderedEvents;
       state.multiplayer.currentMatchId = match.id;
       ensureGameInitialized();
       applyPendingEvents();

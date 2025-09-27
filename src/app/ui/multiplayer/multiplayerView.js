@@ -8,27 +8,27 @@ export function renderMultiplayerLobby() {
   const { loading, error, lobbies, searchTerm } = lobbyList;
   const lobbyItems = lobbies
     .map((lobby) => {
-      const isFull = lobby.status && lobby.status !== 'open';
-      const displayName = escapeHtml(lobby.hostDisplayName || 'Unknown');
+      const hostName = escapeHtml(lobby.hostDisplayName || 'Unknown');
       const opponentName = lobby.guestDisplayName ? escapeHtml(lobby.guestDisplayName) : 'Waiting...';
-      const statusLabel = lobby.status ? lobby.status.replace(/-/g, ' ') : 'open';
-      const colorLabel = lobby.hostColor
+      const statusLabel = escapeHtml((lobby.status || 'open').replace(/-/g, ' '));
+      const hostDeck = lobby.hostColor
         ? `Deck: ${escapeHtml(COLORS[lobby.hostColor]?.name || lobby.hostColor)}`
         : 'Deck: TBD';
-      const joinLabel = isFull ? 'In Progress' : 'Join Lobby';
+      const isJoinable = !lobby.guestUserId && !lobby.matchId;
+      const joinLabel = isJoinable ? 'Join Lobby' : 'In Progress';
       return `
-        <li class="lobby-item ${isFull ? 'locked' : ''}" data-lobby="${lobby.id}">
+        <li class="lobby-item ${isJoinable ? '' : 'locked'}" data-lobby="${lobby.id}">
           <div class="lobby-item-header">
-            <span class="lobby-host-name">${displayName}</span>
-            <span class="lobby-status">${escapeHtml(statusLabel)}</span>
+            <span class="lobby-host-name">${hostName}</span>
+            <span class="lobby-status">${statusLabel}</span>
           </div>
           <div class="lobby-item-body">
-            <span class="lobby-color">${colorLabel}</span>
-            <span class="lobby-opponent">Opponent: ${escapeHtml(opponentName)}</span>
+            <span class="lobby-color">${hostDeck}</span>
+            <span class="lobby-opponent">Opponent: ${opponentName}</span>
           </div>
           <div class="lobby-item-footer">
             <span class="lobby-id">#${lobby.id.slice(-5)}</span>
-            <button class="mini" data-action="view-lobby" data-lobby="${lobby.id}" ${isFull ? 'disabled' : ''}>${joinLabel}</button>
+            <button class="mini" data-action="view-lobby" data-lobby="${lobby.id}" ${isJoinable ? '' : 'disabled'}>${joinLabel}</button>
           </div>
         </li>
       `;
@@ -50,9 +50,13 @@ export function renderMultiplayerLobby() {
         <div class="lobby-toolbar">
           <div class="search-field">
             <label class="sr-only" for="lobby-search">Search by player name</label>
-            <input id="lobby-search" type="search" data-action="search-lobbies" placeholder="Search by player name" value="${escapeHtml(
-              searchTerm,
-            )}" />
+            <input
+              id="lobby-search"
+              type="search"
+              data-action="search-lobbies"
+              placeholder="Search by player name"
+              value="${escapeHtml(searchTerm)}"
+            />
             <button class="ghost mini" data-action="clear-search" ${searchTerm ? '' : 'disabled'}>Clear</button>
           </div>
           <button class="primary" data-action="create-lobby">Create Lobby</button>
@@ -96,19 +100,267 @@ export function renderLobbyDetail() {
     : escapeHtml(`${activeLobby.hostDisplayName || 'Host'}'s Lobby`);
   const statusLabel = escapeHtml((activeLobby.status || 'open').replace(/-/g, ' '));
   const isHostUser = activeLobby.hostUserId === userId;
+  const isGuestUser = activeLobby.guestUserId === userId;
 
+  if (isHostUser) {
+    return renderHostLobbyDetail(activeLobby, lobbyTitle, statusLabel);
+  }
+  if (!activeLobby.guestUserId || isGuestUser) {
+    return renderGuestLobbyDetail(activeLobby, lobbyTitle, statusLabel, isGuestUser);
+  }
+  return renderSpectatorLobbyDetail(activeLobby, lobbyTitle, statusLabel);
+}
+
+function renderHostLobbyDetail(lobby, lobbyTitle, statusLabel) {
   const canStart = Boolean(
-    activeLobby.hostUserId &&
-      activeLobby.guestUserId &&
-      activeLobby.hostColor &&
-      activeLobby.guestColor &&
-      activeLobby.hostReady &&
-      activeLobby.guestReady,
+    lobby.hostUserId &&
+      lobby.guestUserId &&
+      lobby.hostColor &&
+      lobby.guestColor &&
+      lobby.hostReady &&
+      lobby.guestReady,
   );
-  const startDisabled = !isHostUser || !canStart;
-  const startLabel = isHostUser ? 'Start Match' : 'Waiting for Host';
+  const startDisabled = canStart ? '' : 'disabled';
+  const readyLabel = lobby.hostReady ? 'Unready' : 'Ready Up';
+  const readyDisabled = lobby.hostColor ? '' : 'disabled';
+  const hostColorInfo = lobby.hostColor ? COLORS[lobby.hostColor] : null;
+  const hostStyle = hostColorInfo
+    ? ` style="--deck-accent:${hostColorInfo.accent}; --deck-accent-soft:${hostColorInfo.accentSoft};"`
+    : '';
+  const opponentColorInfo = lobby.guestColor ? COLORS[lobby.guestColor] : null;
+  const opponentStyle = opponentColorInfo
+    ? ` style="--deck-accent:${opponentColorInfo.accent}; --deck-accent-soft:${opponentColorInfo.accentSoft};"`
+    : '';
+  const hostDeckTheme = lobby.hostColor
+    ? escapeHtml(COLORS[lobby.hostColor]?.theme || 'Locked in and ready.')
+    : 'Choose a deck to prepare for battle.';
+  const opponentName = escapeHtml(lobby.guestDisplayName || 'Waiting for challenger');
+  const opponentDeck = lobby.guestColor
+    ? escapeHtml(COLORS[lobby.guestColor]?.name || lobby.guestColor)
+    : 'Not selected';
+  const opponentReadyClass = lobby.guestUserId
+    ? lobby.guestReady
+      ? 'ready'
+      : 'waiting'
+    : 'open';
+  const opponentReadyText = lobby.guestUserId
+    ? lobby.guestReady
+      ? 'Ready'
+      : 'Not ready'
+    : 'Empty seat';
+  const opponentMessage = lobby.guestUserId
+    ? lobby.guestReady
+      ? 'Your opponent is locked in and ready to go.'
+      : 'Opponent is choosing a deck or readying up.'
+    : 'Share this lobby with a friend and wait for them to join.';
 
-  const renderDeckPills = (seat, seatColor, opponentColor) => `
+  return `
+    <div class="view hero-view lobby-detail">
+      <div class="hero-background" data-particle-field>
+        <canvas class="particle-canvas" aria-hidden="true"></canvas>
+        <div class="hero-gradient"></div>
+      </div>
+      <div class="hero-panel wide lobby-panel">
+        <div class="hero-header">
+          <span class="hero-kicker">Lobby Control</span>
+          <h2>${lobbyTitle}</h2>
+          <p>Status: ${statusLabel}</p>
+        </div>
+        <div class="lobby-detail-columns">
+          <section class="lobby-card host-card ${lobby.hostColor ? `deck-${lobby.hostColor}` : ''}"${hostStyle}>
+            <header>
+              <h3>Your Deck</h3>
+              <span class="ready-state ${lobby.hostReady ? 'ready' : 'waiting'}">${
+                lobby.hostReady ? 'Ready' : 'Waiting'
+              }</span>
+            </header>
+            <p class="lobby-card-label">${
+              lobby.hostColor ? escapeHtml(COLORS[lobby.hostColor]?.name || lobby.hostColor) : 'No deck selected'
+            }</p>
+            <p class="lobby-card-subtitle">${hostDeckTheme}</p>
+            ${renderDeckPills('host', lobby.hostColor, lobby.guestColor)}
+            <div class="ready-controls">
+              <button class="primary large" data-action="toggle-ready" data-seat="host" ${readyDisabled}>
+                ${readyLabel}
+              </button>
+              ${lobby.hostColor ? '' : '<p class="ready-hint">Select a deck to enable ready.</p>'}
+            </div>
+          </section>
+          <section class="lobby-card opponent-card ${opponentReadyClass}"${opponentStyle}>
+            <header>
+              <h3>Opponent</h3>
+              <span class="ready-state ${opponentReadyClass}">${opponentReadyText}</span>
+            </header>
+            <p class="lobby-card-label">${opponentName}</p>
+            <p class="lobby-card-subtitle">Deck: ${opponentDeck}</p>
+            <p class="opponent-message">${opponentMessage}</p>
+          </section>
+        </div>
+        <div class="lobby-detail-actions">
+          <button class="ghost large" data-action="back-lobbies">Back to Lobbies</button>
+          <button class="primary large" data-action="start-match" ${startDisabled}>Start Game</button>
+        </div>
+        <div class="lobby-detail-footer">
+          <span class="ready-icon" aria-hidden="true">⚔️</span>
+          <span class="ready-text">Both players must pick distinct decks and ready up before battle begins.</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGuestLobbyDetail(lobby, lobbyTitle, statusLabel, isGuestUser) {
+  const guestReadyClass = lobby.guestUserId
+    ? lobby.guestReady
+      ? 'ready'
+      : 'waiting'
+    : 'open';
+  const guestReadyLabel = lobby.guestReady ? 'Unready' : 'Ready Up';
+  const guestHasDeck = Boolean(lobby.guestColor);
+  const guestDeckName = lobby.guestColor
+    ? escapeHtml(COLORS[lobby.guestColor]?.name || lobby.guestColor)
+    : 'Choose your deck';
+  const hostReadyClass = lobby.hostReady ? 'ready' : 'waiting';
+  const hostDeckName = lobby.hostColor
+    ? escapeHtml(COLORS[lobby.hostColor]?.name || lobby.hostColor)
+    : 'Not selected';
+  const hostStatus = lobby.hostReady ? 'Ready' : 'Waiting';
+  const hostMessage = lobby.hostReady
+    ? 'Host is ready to start the match.'
+    : 'Host is picking a deck or preparing to ready up.';
+  const hostColorInfo = lobby.hostColor ? COLORS[lobby.hostColor] : null;
+  const hostStyle = hostColorInfo
+    ? ` style="--deck-accent:${hostColorInfo.accent}; --deck-accent-soft:${hostColorInfo.accentSoft};"`
+    : '';
+  const guestColorInfo = lobby.guestColor ? COLORS[lobby.guestColor] : null;
+  const guestStyle = guestColorInfo
+    ? ` style="--deck-accent:${guestColorInfo.accent}; --deck-accent-soft:${guestColorInfo.accentSoft};"`
+    : '';
+
+  let guestControls = '';
+  if (!lobby.guestUserId) {
+    guestControls = `
+      <div class="guest-actions">
+        <button class="primary large" data-action="claim-seat" data-seat="guest">Join Lobby</button>
+      </div>
+    `;
+  } else if (isGuestUser) {
+    guestControls = `
+      <div class="guest-controls">
+        ${renderDeckPills('guest', lobby.guestColor, lobby.hostColor)}
+        <div class="ready-controls">
+          <button class="primary large" data-action="toggle-ready" data-seat="guest" ${
+            guestHasDeck ? '' : 'disabled'
+          }>${guestReadyLabel}</button>
+          ${guestHasDeck ? '' : '<p class="ready-hint">Pick a deck to enable ready.</p>'}
+        </div>
+      </div>
+    `;
+  } else {
+    guestControls = '<p class="lobby-card-subtitle">Guest seat is taken.</p>';
+  }
+
+  const actionHint = lobby.hostReady && lobby.guestReady ? 'Waiting for the host to launch the match.' : 'Ready up when you are set.';
+
+  return `
+    <div class="view hero-view lobby-detail">
+      <div class="hero-background" data-particle-field>
+        <canvas class="particle-canvas" aria-hidden="true"></canvas>
+        <div class="hero-gradient"></div>
+      </div>
+      <div class="hero-panel wide lobby-panel">
+        <div class="hero-header">
+          <span class="hero-kicker">Prepare for Battle</span>
+          <h2>${lobbyTitle}</h2>
+          <p>Status: ${statusLabel}</p>
+        </div>
+        <div class="lobby-detail-columns">
+          <section class="lobby-card opponent-card ${hostReadyClass}"${hostStyle}>
+            <header>
+              <h3>Host</h3>
+              <span class="ready-state ${hostReadyClass}">${hostStatus}</span>
+            </header>
+            <p class="lobby-card-label">${escapeHtml(lobby.hostDisplayName || 'Host')}</p>
+            <p class="lobby-card-subtitle">Deck: ${hostDeckName}</p>
+            <p class="opponent-message">${hostMessage}</p>
+          </section>
+          <section class="lobby-card guest-card ${guestReadyClass}"${guestStyle}>
+            <header>
+              <h3>Your Seat</h3>
+              <span class="ready-state ${guestReadyClass}">${
+                lobby.guestUserId ? (lobby.guestReady ? 'Ready' : 'Waiting') : 'Open'
+              }</span>
+            </header>
+            <p class="lobby-card-label">${guestDeckName}</p>
+            <p class="lobby-card-subtitle">${actionHint}</p>
+            ${guestControls}
+          </section>
+        </div>
+        <div class="lobby-detail-actions">
+          <button class="ghost large" data-action="back-lobbies">Back to Lobbies</button>
+          <button class="primary large" disabled>${
+            lobby.hostReady && lobby.guestReady ? 'Waiting for Host' : 'Awaiting Ready States'
+          }</button>
+        </div>
+        <div class="lobby-detail-footer">
+          <span class="ready-icon" aria-hidden="true">⚔️</span>
+          <span class="ready-text">Ready up once you have selected a deck. The host will launch the match.</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderSpectatorLobbyDetail(lobby, lobbyTitle, statusLabel) {
+  const hostDeck = lobby.hostColor
+    ? escapeHtml(COLORS[lobby.hostColor]?.name || lobby.hostColor)
+    : 'Not selected';
+  const guestDeck = lobby.guestColor
+    ? escapeHtml(COLORS[lobby.guestColor]?.name || lobby.guestColor)
+    : 'Not selected';
+
+  return `
+    <div class="view hero-view lobby-detail">
+      <div class="hero-background" data-particle-field>
+        <canvas class="particle-canvas" aria-hidden="true"></canvas>
+        <div class="hero-gradient"></div>
+      </div>
+      <div class="hero-panel wide lobby-panel">
+        <div class="hero-header">
+          <span class="hero-kicker">Lobby Full</span>
+          <h2>${lobbyTitle}</h2>
+          <p>Status: ${statusLabel}</p>
+        </div>
+        <div class="lobby-detail-columns spectator">
+          <section class="lobby-card opponent-card ready">
+            <header>
+              <h3>Host</h3>
+            </header>
+            <p class="lobby-card-label">${escapeHtml(lobby.hostDisplayName || 'Host')}</p>
+            <p class="lobby-card-subtitle">Deck: ${hostDeck}</p>
+          </section>
+          <section class="lobby-card opponent-card ready">
+            <header>
+              <h3>Challenger</h3>
+            </header>
+            <p class="lobby-card-label">${escapeHtml(lobby.guestDisplayName || 'Guest')}</p>
+            <p class="lobby-card-subtitle">Deck: ${guestDeck}</p>
+          </section>
+        </div>
+        <div class="lobby-detail-actions">
+          <button class="ghost large" data-action="back-lobbies">Back to Lobbies</button>
+        </div>
+        <div class="lobby-detail-footer">
+          <span class="ready-icon" aria-hidden="true">⚔️</span>
+          <span class="ready-text">Both seats are filled. Try another lobby or create your own.</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDeckPills(seat, seatColor, opponentColor) {
+  return `
     <div class="deck-pill-group">
       ${Object.entries(COLORS)
         .map(([colorKey, info]) => {
@@ -126,113 +378,6 @@ export function renderLobbyDetail() {
           `;
         })
         .join('')}
-    </div>
-  `;
-
-  const renderSeatCard = (seat) => {
-    const isHostSeat = seat === 'host';
-    const seatUserId = isHostSeat ? activeLobby.hostUserId : activeLobby.guestUserId;
-    const seatDisplayName = isHostSeat ? activeLobby.hostDisplayName : activeLobby.guestDisplayName;
-    const seatColor = isHostSeat ? activeLobby.hostColor : activeLobby.guestColor;
-    const seatReady = Boolean(isHostSeat ? activeLobby.hostReady : activeLobby.guestReady);
-    const isSeatOwner = seatUserId && seatUserId === userId;
-
-    const colorInfo = seatColor ? COLORS[seatColor] : null;
-    const occupantName = seatUserId
-      ? escapeHtml(seatDisplayName || 'Player')
-      : isHostSeat
-      ? 'Host slot open'
-      : 'Waiting for challenger';
-    const deckName = colorInfo ? escapeHtml(colorInfo.name) : 'No deck selected';
-    const deckTheme = colorInfo ? escapeHtml(colorInfo.theme) : 'Choose a deck to lock in your strategy.';
-    const classNames = ['seat-card'];
-    if (colorInfo) classNames.push('has-color', `deck-${seatColor}`);
-    if (seatReady) classNames.push('ready');
-    if (!seatUserId) classNames.push('open');
-    if (isSeatOwner) classNames.push('is-owner');
-
-    const styleAttr = colorInfo
-      ? ` style="--deck-accent:${colorInfo.accent}; --deck-accent-soft:${colorInfo.accentSoft};"`
-      : '';
-    const statusClass = seatUserId ? (seatReady ? 'ready' : 'waiting') : 'open';
-    const statusText = seatUserId ? (seatReady ? 'Ready' : 'Waiting') : 'Open';
-    const opponentColor = isHostSeat ? activeLobby.guestColor : activeLobby.hostColor;
-
-    let controls = '';
-    if (!seatUserId) {
-      const joinLabel = isHostSeat ? 'Claim Host Seat' : 'Join Lobby';
-      controls = `
-        <div class="seat-actions">
-          <button class="primary large" data-action="claim-seat" data-seat="${seat}">${joinLabel}</button>
-        </div>
-      `;
-    } else if (isSeatOwner) {
-      const deckButtons = renderDeckPills(seat, seatColor, opponentColor);
-      const readyDisabled = seatColor ? '' : 'disabled';
-      const readyLabel = seatReady ? 'Unready' : 'Ready Up';
-      const readyHint = seatColor ? '' : '<p class="seat-hint">Select a deck to enable ready.</p>';
-      controls = `
-        <div class="seat-controls">
-          ${deckButtons}
-          <div class="seat-ready-row">
-            <button class="primary large ready-toggle" data-action="toggle-ready" data-seat="${seat}" ${readyDisabled}>${readyLabel}</button>
-          </div>
-          ${readyHint}
-        </div>
-      `;
-    } else {
-      const waitingMessage = seatReady ? 'Locked in and ready.' : 'Waiting for this player to ready up.';
-      controls = `<p class="seat-note">${waitingMessage}</p>`;
-    }
-
-    const themeText = isSeatOwner && !seatColor ? 'Pick a deck below to prepare for battle.' : deckTheme;
-
-    return `
-      <article class="${classNames.join(' ')}"${styleAttr}>
-        <header class="seat-header">
-          <div class="seat-heading">
-            <span class="seat-role">${seat === 'host' ? 'Host' : 'Challenger'}</span>
-            <h3>${occupantName}</h3>
-          </div>
-          <span class="seat-status-pill ${statusClass}">${statusText}</span>
-        </header>
-        <div class="seat-body">
-          <div class="seat-deck-summary">
-            <span class="seat-label">Deck</span>
-            <span class="seat-value">${deckName}</span>
-          </div>
-          <p class="seat-theme-text">${themeText}</p>
-          ${controls}
-        </div>
-      </article>
-    `;
-  };
-
-  return `
-    <div class="view hero-view lobby-detail">
-      <div class="hero-background" data-particle-field>
-        <canvas class="particle-canvas" aria-hidden="true"></canvas>
-        <div class="hero-gradient"></div>
-      </div>
-      <div class="hero-panel wide">
-        <div class="hero-header">
-          <span class="hero-kicker">Lobby Status</span>
-          <h2>${lobbyTitle}</h2>
-          <p>Status: ${statusLabel}</p>
-        </div>
-        <div class="lobby-detail-grid">
-          ${renderSeatCard('host')}
-          ${renderSeatCard('guest')}
-        </div>
-        <div class="lobby-detail-actions">
-          <button class="ghost large" data-action="back-lobbies">Back to Lobbies</button>
-          <button class="primary large" data-action="start-match" ${startDisabled ? 'disabled' : ''}>${startLabel}</button>
-        </div>
-        <div class="lobby-detail-footer">
-          <span class="ready-icon" aria-hidden="true">⚔️</span>
-          <span class="ready-text">Both players must pick distinct decks and ready up before battle begins.</span>
-        </div>
-      </div>
     </div>
   `;
 }

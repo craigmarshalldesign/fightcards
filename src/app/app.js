@@ -2,6 +2,7 @@ import { registerRenderer, setState, state, db } from './state.js';
 import { renderApp } from './ui/renderRoot.js';
 import { initBackground } from './background.js';
 import { describeGameState } from './game/core/index.js';
+import { cleanupRememberedLobbyForUser } from './ui/multiplayer/events.js';
 
 export function setupApp(root) {
   root.innerHTML = '';
@@ -37,6 +38,9 @@ export function setupApp(root) {
       auth: { loading: false, user, error: null },
       screen: user ? 'menu' : 'login',
     });
+    if (user) {
+      cleanupRememberedLobbyForUser(user.id);
+    }
   });
 
   window.addEventListener('focus', () => {
