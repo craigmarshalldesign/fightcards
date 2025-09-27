@@ -102,7 +102,7 @@ export async function enqueueMatchEvent(type, payload) {
   const match = state.multiplayer.match;
   const nextSequence = match.nextSequence ?? 1;
   try {
-    const eventId = generateId('matchEvent');
+    const eventId = generateId();
     const now = Date.now();
     const ops = [
       db.tx.matchEvents[eventId].update({

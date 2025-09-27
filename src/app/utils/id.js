@@ -1,7 +1,21 @@
-export function generateId(prefix = '') {
-  const baseId =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  return prefix ? `${prefix}_${baseId}` : baseId;
+function fallbackUuid() {
+  let timestamp = Date.now();
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    timestamp += performance.now();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = (timestamp + Math.random() * 16) % 16 | 0;
+    timestamp = Math.floor(timestamp / 16);
+    if (char === 'x') {
+      return random.toString(16);
+    }
+    return ((random & 0x3) | 0x8).toString(16);
+  });
+}
+
+export function generateId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return fallbackUuid();
 }

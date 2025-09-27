@@ -416,8 +416,8 @@ async function startMatch() {
 
   if (!ready) return;
 
-  const matchId = generateId('match');
-  const eventId = generateId('matchEvent');
+  const matchId = generateId();
+  const eventId = generateId();
   const now = Date.now();
   const diceRolls = {
     host: 1 + Math.floor(Math.random() * 6),
@@ -605,7 +605,7 @@ async function createLobby() {
 
   try {
     await deleteUserStaleLobbies(user.id);
-    const lobbyId = generateId('lobby');
+    const lobbyId = generateId();
     const now = Date.now();
     const displayName = deriveDisplayName(user);
     const normalizedName = displayName.trim() || 'Player';
