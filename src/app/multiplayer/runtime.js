@@ -1,5 +1,5 @@
 import { state, requestRender, db } from '../state.js';
-import { buildDeck } from '../../game/cards/index.js';
+import { buildDeck, CARD_LIBRARY } from '../../game/cards/index.js';
 import { createPlayer, drawCards } from '../game/core/players.js';
 import { createInitialStats } from '../game/core/stats.js';
 import { cloneGameStateForNetwork } from '../game/core/runtime.js';
@@ -157,8 +157,10 @@ export function subscribeToMatch(matchId) {
     state.multiplayer.match = match;
     if (match) {
       ensureLocalSeat(match);
+      ensureCardCache();
       state.multiplayer.matchEvents = snapshot.data?.matchEvents ?? [];
       state.multiplayer.currentMatchId = match.id;
+      ensureGameInitialized();
       applyPendingEvents();
     }
     requestRender();
@@ -211,6 +213,17 @@ export function setLocalSeat(seat) {
   state.multiplayer.localSeat = seat || null;
 }
 
+function ensureCardCache() {
+  if (state.multiplayer.cardCache) return;
+  const cache = {};
+  Object.values(CARD_LIBRARY).forEach((cards) => {
+    cards.forEach((card) => {
+      cache[card.id] = card;
+    });
+  });
+  state.multiplayer.cardCache = cache;
+}
+
 function applyPendingEvents() {
   if (!state.multiplayer.matchEvents?.length) return;
   const { matchEvents } = state.multiplayer;
@@ -237,8 +250,41 @@ function applyPendingEvents() {
 
 function ensureGameInitialized() {
   if (state.game && state.screen === 'game') return;
+  if (state.multiplayer.match) {
+    initializeMultiplayerGame();
+    return;
+  }
   const defaultColor = state.multiplayer.localSeat === 'guest' ? 'blue' : 'red';
   startGame(defaultColor);
+}
+
+function initializeMultiplayerGame() {
+  const match = state.multiplayer.match;
+  if (!match) return;
+
+  const game = {
+    players: [],
+    currentPlayer: match.activePlayer ?? 0,
+    phase: match.phase ?? 'main1',
+    turn: match.turn ?? 1,
+    log: match.log ? [...match.log] : [],
+    pendingAction: match.pendingAction ? JSON.parse(JSON.stringify(match.pendingAction)) : null,
+    combat: null,
+    blocking: null,
+    preventCombatDamageFor: null,
+    preventDamageToAttackersFor: null,
+    winner: match.winner ?? null,
+    dice: match.dice ?? null,
+    stats: match.stats ? JSON.parse(JSON.stringify(match.stats)) : createInitialStats(),
+  };
+
+  seedMultiplayerMatch(game);
+  state.game = game;
+  state.screen = 'game';
+  state.ui.battleLogExpanded = false;
+  state.ui.spellLogExpanded = false;
+  state.ui.previewCard = null;
+  requestRender();
 }
 
 function getControllerPlayer(game, controller) {
