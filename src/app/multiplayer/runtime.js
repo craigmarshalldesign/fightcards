@@ -16,6 +16,10 @@ import { createCardInstance } from '../../game/cards/index.js';
 import { resolveEffects } from '../game/core/effects.js';
 import { cleanupPending } from '../game/core/pending.js';
 import { generateId } from '../utils/id.js';
+import {
+  MULTIPLAYER_RULE_PARAMS,
+  applyMultiplayerRuleParams,
+} from './rules.js';
 
 const EVENT_TYPES = {
   MATCH_STARTED: 'match-started',
@@ -119,7 +123,7 @@ export async function enqueueMatchEvent(type, payload) {
       }),
     ];
 
-    await db.transact(ops);
+    await db.transact(ops.map((chunk) => applyMultiplayerRuleParams(chunk)).filter(Boolean));
   } catch (error) {
     console.error('Failed to enqueue match event', type, error);
   }
@@ -146,7 +150,9 @@ export function subscribeToMatch(matchId) {
     },
   };
 
-  const unsubscribe = db.subscribeQuery(query, (snapshot) => {
+  const unsubscribe = db.subscribeQuery(
+    query,
+    (snapshot) => {
     if (snapshot.error) {
       state.multiplayer.match = null;
       state.multiplayer.matchSubscription = null;
@@ -170,7 +176,9 @@ export function subscribeToMatch(matchId) {
       applyPendingEvents();
     }
     requestRender();
-  });
+    },
+    { ruleParams: MULTIPLAYER_RULE_PARAMS },
+  );
 
   state.multiplayer.matchSubscription = unsubscribe;
 }

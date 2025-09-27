@@ -54,6 +54,12 @@ export const schema = i.schema({
 });
 ```
 
+### Security & Rule Parameters
+
+- Multiplayer reads and writes include InstantDB `ruleParams` so lobbies, matches, and match events land in a shared, public scope.
+- By default the client sends `{ visibility: 'public' }`. Override the key or value with `VITE_INSTANTDB_MULTIPLAYER_RULE_KEY` and `VITE_INSTANTDB_MULTIPLAYER_RULE_VALUE` if your rules expect different identifiers.
+- Configure InstantDB rules to allow read/write access whenever the provided rule parameters match the public multiplayer scope. This ensures every signed-in user can see and join newly created lobbies immediately.
+
 ### ID Generation
 
 InstantDB validates that entity primary keys are UUID strings. The client uses `crypto.randomUUID()` (with a deterministic fallback for environments that lack the Web Crypto API) via `generateId()` so that lobby, match, and match-event records always satisfy that requirement.
@@ -80,7 +86,7 @@ InstantDB validates that entity primary keys are UUID strings. The client uses `
 
 ### Client Lobby Flow
 
-- The lobby browser subscribes to the 20 most recent entries and sorts them by `updatedAt` (falling back to `createdAt` when missing) so newly active rooms bubble to the top of the list. Filtering to `open`, `ready`, `starting`, and `playing` states now happens client-side to avoid schema validation issues when optional fields are absent.
+- The lobby browser subscribes to the 20 most recent entries (using the public rule scope described above) and sorts them by `updatedAt` (falling back to `createdAt` when missing) so newly active rooms bubble to the top of the list. Filtering to `open`, `ready`, `starting`, and `playing` states now happens client-side to avoid schema validation issues when optional fields are absent.
 - A manual **Refresh** control re-runs the subscription query on demand so players can immediately pull in lobbies created from other devices. Subscription failures surface an inline error allowing players to retry.
 - Seat updates (claiming/leaving, deck choices, ready toggles) optimistically update the local lobby state while the InstantDB transaction completes, ensuring UI controls reflect the current selection immediately.
 - Player name search is performed entirely client-side by matching the lower-cased `hostDisplayName` and `guestDisplayName` fields. The `searchKey` column exists to speed up server-side filtering if rules are added later.

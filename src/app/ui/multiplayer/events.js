@@ -2,6 +2,10 @@ import { db, state, requestRender } from '../../state.js';
 import { COLORS } from '../../../game/cards/index.js';
 import { subscribeToMatch, clearMatch, MULTIPLAYER_EVENT_TYPES } from '../../multiplayer/runtime.js';
 import { generateId } from '../../utils/id.js';
+import {
+  MULTIPLAYER_RULE_PARAMS,
+  applyMultiplayerRuleParams,
+} from '../../multiplayer/rules.js';
 
 const LOBBY_QUERY_LIMIT = 20;
 const STALE_LOBBY_TIMEOUT_MS = 60_000;
@@ -37,10 +41,19 @@ function normalizeLobbyRecord(raw) {
   return lobby;
 }
 
-export async function runTransactions(chunks, { onError } = {}) {
+export async function runTransactions(chunks, { onError, withRuleParams = false } = {}) {
   const operations = Array.isArray(chunks) ? chunks : [chunks];
+  const prepared = operations
+    .map((chunk) => {
+      if (!chunk) return null;
+      return withRuleParams ? applyMultiplayerRuleParams(chunk) : chunk;
+    })
+    .filter(Boolean);
   try {
-    await db.transact(operations);
+    if (!prepared.length) {
+      return true;
+    }
+    await db.transact(prepared);
     return true;
   } catch (error) {
     if (typeof onError === 'function') {
@@ -88,6 +101,7 @@ export async function cleanupRememberedLobbyForUser(userId) {
     onError(error) {
       console.warn('Failed to cleanup remembered lobby', error);
     },
+    withRuleParams: true,
   });
   clearRememberedLobby(storedId);
 }
@@ -115,6 +129,7 @@ async function deleteUserStaleLobbies(userId) {
     onError(error) {
       console.error('Failed to delete stale lobbies for host', error);
     },
+    withRuleParams: true,
   });
 }
 
@@ -140,6 +155,7 @@ async function deleteLobby(lobbyId, { silent = false } = {}) {
     onError(error) {
       console.error('Failed to delete lobby', lobbyId, error);
     },
+    withRuleParams: true,
   });
   if (!success) return false;
 
@@ -197,7 +213,9 @@ function ensureActiveLobbySubscription(lobbyId) {
     },
   };
 
-  const unsubscribe = db.subscribeQuery(query, (snapshot) => {
+  const unsubscribe = db.subscribeQuery(
+    query,
+    (snapshot) => {
     if (snapshot.error) {
       state.multiplayer.activeLobby = null;
       state.multiplayer.activeLobbySubscription = null;
@@ -243,7 +261,9 @@ function ensureActiveLobbySubscription(lobbyId) {
       state.screen = 'multiplayer-lobby-detail';
     }
     requestRender();
-  });
+    },
+    { ruleParams: MULTIPLAYER_RULE_PARAMS },
+  );
 
   state.multiplayer.activeLobbySubscription = unsubscribe;
 }
@@ -460,7 +480,9 @@ async function claimSeat(seat) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates), {
+    withRuleParams: true,
+  });
   if (success) {
     state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
     requestRender();
@@ -489,7 +511,9 @@ async function leaveSeat(seat) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates), {
+    withRuleParams: true,
+  });
   if (success) {
     state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
     requestRender();
@@ -519,7 +543,9 @@ async function chooseDeck(seat, color) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates), {
+    withRuleParams: true,
+  });
   if (success) {
     state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
     requestRender();
@@ -544,7 +570,9 @@ async function toggleReady(seat) {
   };
   updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
-  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates));
+  const success = await runTransactions(db.tx.lobbies[lobby.id].update(updates), {
+    withRuleParams: true,
+  });
   if (success) {
     state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
     requestRender();
@@ -635,6 +663,7 @@ async function startMatch() {
         onError(error) {
           console.error('Failed to start match', error);
         },
+        withRuleParams: true,
       },
     );
     if (!success) {
@@ -694,6 +723,7 @@ async function maybeCleanupStaleLobbies(lobbies) {
       onError(error) {
         console.error('Failed to delete stale lobby', lobby.id, error);
       },
+      withRuleParams: true,
     });
     deletedAny = true;
   }
@@ -721,7 +751,9 @@ function refreshLobbySubscription() {
 
   let unsubscribe;
   try {
-    unsubscribe = db.subscribeQuery(query, async (snapshot) => {
+    unsubscribe = db.subscribeQuery(
+      query,
+      async (snapshot) => {
       if (snapshot.error) {
         state.multiplayer.lobbyList.loading = false;
         state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
@@ -731,7 +763,9 @@ function refreshLobbySubscription() {
       }
 
       const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
-      const snapshotLobbies = (snapshot.data?.lobbies ?? []).map((lobby) => normalizeLobbyRecord(lobby));
+      const snapshotLobbies = (snapshot.data?.lobbies ?? [])
+        .map((lobby) => normalizeLobbyRecord(lobby))
+        .filter(Boolean);
       await maybeCleanupStaleLobbies(snapshotLobbies);
 
       let lobbies = snapshotLobbies.filter((lobby) => VISIBLE_LOBBY_STATUSES.includes(lobby.status));
@@ -757,7 +791,9 @@ function refreshLobbySubscription() {
       state.multiplayer.lobbyList.lobbies = lobbies;
       state.multiplayer.lobbyList.loading = false;
       requestRender();
-    });
+      },
+      { ruleParams: MULTIPLAYER_RULE_PARAMS },
+    );
   } catch (error) {
     console.error('Failed to subscribe to lobbies', error);
     state.multiplayer.lobbyList.loading = false;
@@ -805,6 +841,7 @@ async function createLobby() {
       onError(error) {
         console.error('Failed to create lobby', error);
       },
+      withRuleParams: true,
     });
     if (!success) {
       state.multiplayer.lobbyList.error = 'Could not create lobby. Please try again.';
