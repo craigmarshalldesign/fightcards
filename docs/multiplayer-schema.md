@@ -4,23 +4,53 @@ Multiplayer relies on deterministic, append-only events stored in InstantDB. Thi
 
 ## Entities Overview
 
+### InstantDB Schema Snippet
+
+```ts
+import { i } from '@instantdb/core';
+
+export const schema = i.schema({
+  entities: {
+    lobbies: i.entity({
+      status: i.string().optional(),
+      hostUserId: i.string().optional(),
+      hostDisplayName: i.string().optional(),
+      hostColor: i.string().optional(),
+      hostReady: i.boolean().optional(),
+      guestUserId: i.string().optional(),
+      guestDisplayName: i.string().optional(),
+      guestColor: i.string().optional(),
+      guestReady: i.boolean().optional(),
+      searchKey: i.string().optional(),
+      matchId: i.string().optional(),
+      createdAt: i.number().optional(),
+      updatedAt: i.number().optional(),
+    }),
+  },
+  links: {},
+  rooms: {},
+});
+```
+
 ### `lobbies`
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | Lobby id |
-| `status` | string | `'open' \| 'full' \| 'ready' \| 'starting' \| 'playing' \| 'completed' \| 'abandoned'` |
-| `hostUserId` | string | Lobby owner |
-| `hostDisplayName` | string | Cached host name |
-| `hostColor` | string | Selected deck color |
-| `hostReady` | boolean | Ready flag |
-| `guestUserId` | string | Guest user id |
-| `guestDisplayName` | string | Guest display name |
-| `guestColor` | string | Guest deck color |
-| `guestReady` | boolean | Guest ready flag |
-| `searchKey` | string | Lower-cased host name (search index) |
-| `matchId` | string | Match activated for the lobby |
-| `createdAt` | number | Unix epoch |
-| `updatedAt` | number | Unix epoch |
+| `id` | string | Lobby id generated client-side via `generateId('lobby')`. |
+| `status` | string | `'open' \| 'ready' \| 'starting' \| 'playing' \| 'completed' \| 'abandoned'`; defaults to `'open'`. |
+| `hostUserId` | string | Lobby owner (Instant user id). Empty string means the seat is open. |
+| `hostDisplayName` | string | Cached host name shown in listings. Empty string when unknown. |
+| `hostColor` | string | Selected deck color for the host seat (empty string until chosen). |
+| `hostReady` | boolean | Host ready flag (`false` until the host readies up). |
+| `guestUserId` | string | Guest user id (`''` when unclaimed). |
+| `guestDisplayName` | string | Guest display name (`''` when unclaimed). |
+| `guestColor` | string | Guest deck color (`''` until chosen). |
+| `guestReady` | boolean | Guest ready flag. |
+| `searchKey` | string | Lower-cased host name used for search filtering. |
+| `matchId` | string | Match activated for the lobby (empty string while waiting). |
+| `createdAt` | number | Unix epoch (ms) when the lobby was created. |
+| `updatedAt` | number | Unix epoch (ms) when the lobby last changed; used for stale cleanup. |
+
+> **Note:** Optional seat/display fields are written as empty strings while the slot is open. The client also prunes host-owned lobbies that stay open without a guest for longer than 60 seconds by deleting the record from InstantDB.
 
 ### `matches`
 | Field | Type | Description |

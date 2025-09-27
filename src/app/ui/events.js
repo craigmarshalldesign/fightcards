@@ -32,6 +32,71 @@ const LOBBY_CLEANUP_THROTTLE_MS = 5_000;
 
 let lastLobbyCleanupCheck = 0;
 
+function ensureString(value) {
+  return typeof value === 'string' ? value : '';
+}
+
+function normalizeLobbyRecord(raw) {
+  if (!raw) return null;
+  const lobby = { ...raw };
+  lobby.id = ensureString(lobby.id);
+  lobby.status = ensureString(lobby.status) || 'open';
+  lobby.hostUserId = ensureString(lobby.hostUserId);
+  lobby.hostDisplayName = ensureString(lobby.hostDisplayName);
+  lobby.hostColor = ensureString(lobby.hostColor);
+  lobby.hostReady = Boolean(lobby.hostReady);
+  lobby.guestUserId = ensureString(lobby.guestUserId);
+  lobby.guestDisplayName = ensureString(lobby.guestDisplayName);
+  lobby.guestColor = ensureString(lobby.guestColor);
+  lobby.guestReady = Boolean(lobby.guestReady);
+  lobby.searchKey = ensureString(lobby.searchKey) || lobby.hostDisplayName.toLowerCase();
+  lobby.matchId = ensureString(lobby.matchId);
+  lobby.createdAt = typeof lobby.createdAt === 'number' ? lobby.createdAt : 0;
+  lobby.updatedAt = typeof lobby.updatedAt === 'number' ? lobby.updatedAt : lobby.createdAt;
+  return lobby;
+}
+
+async function runTransactions(chunks, { onError } = {}) {
+  const operations = Array.isArray(chunks) ? chunks : [chunks];
+  try {
+    await db.transact(operations);
+    return true;
+  } catch (error) {
+    if (typeof onError === 'function') {
+      onError(error);
+    } else {
+      console.error('InstantDB transaction failed', error);
+    }
+    return false;
+  }
+}
+
+async function deleteUserStaleLobbies(userId) {
+  if (!userId) return;
+  const now = Date.now();
+  const staleLobbies = state.multiplayer.lobbyList.lobbies
+    .map((lobby) => normalizeLobbyRecord(lobby))
+    .filter((lobby) => {
+      if (!lobby) return false;
+      if (!lobby.id) return false;
+      if (lobby.hostUserId !== userId) return false;
+      if (lobby.matchId) return false;
+      if (lobby.guestUserId) return false;
+      const lastUpdated = lobby.updatedAt || lobby.createdAt || 0;
+      if (!lastUpdated) return true;
+      return now - lastUpdated >= STALE_LOBBY_TIMEOUT_MS;
+    });
+
+  if (!staleLobbies.length) return;
+
+  const tx = staleLobbies.map((lobby) => db.tx.lobbies[lobby.id].delete());
+  await runTransactions(tx, {
+    onError(error) {
+      console.error('Failed to delete stale lobbies for host', error);
+    },
+  });
+}
+
 function ensureMultiplayerScreenSubscriptions() {
   if (state.screen === 'multiplayer-lobbies' && !state.multiplayer.lobbySubscription) {
     refreshLobbySubscription();
@@ -67,8 +132,9 @@ function ensureActiveLobbySubscription(lobbyId) {
     }
     const previousLobby = state.multiplayer.activeLobby;
     const lobby = snapshot.data?.lobbies?.[0] ?? null;
-    state.multiplayer.activeLobby = lobby;
-    if (!lobby) {
+    const normalizedLobby = normalizeLobbyRecord(lobby);
+    state.multiplayer.activeLobby = normalizedLobby;
+    if (!normalizedLobby) {
       state.multiplayer.activeLobbySubscription = null;
       clearMatch();
       if (state.screen === 'multiplayer-lobby-detail') {
@@ -78,7 +144,7 @@ function ensureActiveLobbySubscription(lobbyId) {
       return;
     }
 
-    const matchId = lobby.matchId ?? null;
+    const matchId = normalizedLobby.matchId || null;
     if (matchId && matchId !== state.multiplayer.currentMatchId) {
       subscribeToMatch(matchId);
     } else if (!matchId && state.multiplayer.currentMatchId) {
@@ -86,7 +152,9 @@ function ensureActiveLobbySubscription(lobbyId) {
     }
 
     const userId = state.auth.user?.id;
-    const userInLobby = Boolean(userId && (lobby.hostUserId === userId || lobby.guestUserId === userId));
+    const userInLobby = Boolean(
+      userId && (normalizedLobby.hostUserId === userId || normalizedLobby.guestUserId === userId),
+    );
     if (matchId && userInLobby) {
       state.screen = 'game';
     } else if (!matchId && previousLobby?.matchId && userInLobby && state.screen === 'game') {
@@ -159,7 +227,7 @@ function bindMultiplayerLobbyEvents(root) {
       const lobbyId = target.getAttribute('data-lobby');
       if (!lobbyId) return;
       const lobby = state.multiplayer.lobbyList.lobbies.find((l) => l.id === lobbyId);
-      state.multiplayer.activeLobby = lobby || null;
+      state.multiplayer.activeLobby = lobby ? normalizeLobbyRecord(lobby) : null;
       state.screen = 'multiplayer-lobby-detail';
       ensureActiveLobbySubscription(lobbyId);
       if (lobby?.matchId) {
@@ -580,7 +648,7 @@ async function claimSeat(seat) {
     [seatColorKey]: typeof lobby[seatColorKey] === 'string' ? lobby[seatColorKey] : '',
   };
 
-  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
 
 async function leaveSeat(seat) {
@@ -599,7 +667,7 @@ async function leaveSeat(seat) {
     [seat === 'host' ? 'hostReady' : 'guestReady']: false,
   };
 
-  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
 
 async function chooseDeck(seat, color) {
@@ -624,7 +692,7 @@ async function chooseDeck(seat, color) {
     [seatReadyKey]: false,
   };
 
-  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
 
 async function toggleReady(seat) {
@@ -644,7 +712,7 @@ async function toggleReady(seat) {
     [seatReadyKey]: !lobby[seatReadyKey],
   };
 
-  await db.transact(db.tx.lobbies[lobby.id].update(updates));
+  await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
 
 async function startMatch() {
@@ -711,15 +779,27 @@ async function startMatch() {
 
   try {
     state.multiplayer.lobbyList.error = null;
-    await db.transact([
-      db.tx.matches[matchId].update(match),
-      db.tx.matchEvents[eventId].update(matchStartedEvent),
-      db.tx.lobbies[lobby.id].update({
-        matchId,
-        status: 'starting',
-        updatedAt: now,
-      }),
-    ]);
+    const success = await runTransactions(
+      [
+        db.tx.matches[matchId].update(match),
+        db.tx.matchEvents[eventId].update(matchStartedEvent),
+        db.tx.lobbies[lobby.id].update({
+          matchId,
+          status: 'starting',
+          updatedAt: now,
+        }),
+      ],
+      {
+        onError(error) {
+          console.error('Failed to start match', error);
+        },
+      },
+    );
+    if (!success) {
+      state.multiplayer.lobbyList.error = 'Could not start the match. Please try again.';
+      requestRender();
+      return;
+    }
 
     state.multiplayer.activeLobby = {
       ...lobby,
@@ -888,7 +968,8 @@ function maybeCleanupStaleLobbies(lobbies) {
   const userId = state.auth.user?.id ?? null;
   let deletedAny = false;
 
-  for (const lobby of lobbies) {
+  for (const rawLobby of lobbies) {
+    const lobby = normalizeLobbyRecord(rawLobby);
     if (!lobby) continue;
     if (lobby.matchId) continue;
 
@@ -906,9 +987,11 @@ function maybeCleanupStaleLobbies(lobbies) {
     const canDelete = Boolean(!lobby.hostUserId || (userId && lobby.hostUserId === userId));
     if (!canDelete) continue;
 
-    db
-      .transact(db.tx.lobbies[lobby.id].delete())
-      .catch((error) => console.error('Failed to delete stale lobby', lobby.id, error));
+    runTransactions(db.tx.lobbies[lobby.id].delete(), {
+      onError(error) {
+        console.error('Failed to delete stale lobby', lobby.id, error);
+      },
+    });
     deletedAny = true;
   }
 
@@ -949,7 +1032,7 @@ function refreshLobbySubscription() {
     }
 
     const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
-    const snapshotLobbies = snapshot.data?.lobbies ?? [];
+    const snapshotLobbies = (snapshot.data?.lobbies ?? []).map((lobby) => normalizeLobbyRecord(lobby));
     maybeCleanupStaleLobbies(snapshotLobbies);
 
     let lobbies = snapshotLobbies;
@@ -978,6 +1061,7 @@ async function createLobby() {
   }
 
   try {
+    await deleteUserStaleLobbies(user.id);
     const lobbyId = generateId('lobby');
     const now = Date.now();
     const displayName = deriveDisplayName(user);
@@ -1000,9 +1084,18 @@ async function createLobby() {
       updatedAt: now,
     };
 
-    await db.transact(db.tx.lobbies[lobbyId].update(lobby));
+    const success = await runTransactions(db.tx.lobbies[lobbyId].update(lobby), {
+      onError(error) {
+        console.error('Failed to create lobby', error);
+      },
+    });
+    if (!success) {
+      state.multiplayer.lobbyList.error = 'Could not create lobby. Please try again.';
+      requestRender();
+      return;
+    }
     cleanupActiveLobbySubscription();
-    state.multiplayer.activeLobby = lobby;
+    state.multiplayer.activeLobby = normalizeLobbyRecord(lobby);
     state.screen = 'multiplayer-lobby-detail';
     ensureActiveLobbySubscription(lobbyId);
     requestRender();
