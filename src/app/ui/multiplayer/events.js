@@ -6,8 +6,11 @@ import { generateId } from '../../utils/id.js';
 const LOBBY_QUERY_LIMIT = 20;
 const STALE_LOBBY_TIMEOUT_MS = 60_000;
 const LOBBY_CLEANUP_THROTTLE_MS = 5_000;
+const ACTIVE_LOBBY_TTL_MS = 60_000;
+const LOBBY_STORAGE_KEY = 'fightcards:lastLobbyId';
 
 let lastLobbyCleanupCheck = 0;
+let activeLobbyExpiryTimer = null;
 
 function ensureString(value) {
   return typeof value === 'string' ? value : '';
@@ -33,7 +36,7 @@ function normalizeLobbyRecord(raw) {
   return lobby;
 }
 
-async function runTransactions(chunks, { onError } = {}) {
+export async function runTransactions(chunks, { onError } = {}) {
   const operations = Array.isArray(chunks) ? chunks : [chunks];
   try {
     await db.transact(operations);
@@ -46,6 +49,46 @@ async function runTransactions(chunks, { onError } = {}) {
     }
     return false;
   }
+}
+
+function rememberOwnedLobby(lobbyId) {
+  if (!lobbyId || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(LOBBY_STORAGE_KEY, lobbyId);
+  } catch (error) {
+    console.warn('Could not persist active lobby id', error);
+  }
+}
+
+function clearRememberedLobby(lobbyId) {
+  if (typeof window === 'undefined') return;
+  try {
+    const stored = window.localStorage.getItem(LOBBY_STORAGE_KEY);
+    if (!lobbyId || stored === lobbyId) {
+      window.localStorage.removeItem(LOBBY_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('Could not clear active lobby id', error);
+  }
+}
+
+export async function cleanupRememberedLobbyForUser(userId) {
+  if (!userId || typeof window === 'undefined') return;
+  let storedId = null;
+  try {
+    storedId = window.localStorage.getItem(LOBBY_STORAGE_KEY);
+  } catch (error) {
+    console.warn('Could not read remembered lobby id', error);
+    return;
+  }
+  if (!storedId) return;
+
+  await runTransactions(db.tx.lobbies[storedId].delete(), {
+    onError(error) {
+      console.warn('Failed to cleanup remembered lobby', error);
+    },
+  });
+  clearRememberedLobby(storedId);
 }
 
 async function deleteUserStaleLobbies(userId) {
@@ -83,6 +126,60 @@ export function ensureMultiplayerScreenSubscriptions() {
   }
 }
 
+function clearActiveLobbyExpiryTimer() {
+  if (activeLobbyExpiryTimer) {
+    clearTimeout(activeLobbyExpiryTimer);
+    activeLobbyExpiryTimer = null;
+  }
+}
+
+async function deleteLobby(lobbyId, { silent = false } = {}) {
+  if (!lobbyId) return false;
+  const success = await runTransactions(db.tx.lobbies[lobbyId].delete(), {
+    onError(error) {
+      console.error('Failed to delete lobby', lobbyId, error);
+    },
+  });
+  if (!success) return false;
+
+  if (state.multiplayer.activeLobby?.id === lobbyId) {
+    clearActiveLobbyExpiryTimer();
+    state.multiplayer.activeLobby = null;
+    if (!state.multiplayer.currentMatchId) {
+      state.screen = 'multiplayer-lobbies';
+    }
+  }
+  if (!state.multiplayer.currentMatchId) {
+    clearMatch();
+  }
+  clearRememberedLobby(lobbyId);
+  if (!silent) {
+    requestRender();
+  }
+  return true;
+}
+
+function scheduleActiveLobbyExpiry(lobby) {
+  clearActiveLobbyExpiryTimer();
+  if (!lobby?.id) return;
+  const userId = state.auth.user?.id;
+  if (!userId || lobby.hostUserId !== userId) return;
+
+  const lastActivity = lobby.updatedAt || lobby.createdAt || 0;
+  if (!lastActivity) return;
+
+  const elapsed = Date.now() - lastActivity;
+  const remaining = ACTIVE_LOBBY_TTL_MS - elapsed;
+  if (remaining <= 0) {
+    deleteLobby(lobby.id);
+    return;
+  }
+
+  activeLobbyExpiryTimer = setTimeout(() => {
+    deleteLobby(lobby.id);
+  }, remaining);
+}
+
 function ensureActiveLobbySubscription(lobbyId) {
   if (!lobbyId) return;
   if (state.multiplayer.activeLobbySubscription) {
@@ -103,7 +200,9 @@ function ensureActiveLobbySubscription(lobbyId) {
     if (snapshot.error) {
       state.multiplayer.activeLobby = null;
       state.multiplayer.activeLobbySubscription = null;
-      clearMatch();
+      if (!state.multiplayer.currentMatchId) {
+        clearMatch();
+      }
       requestRender();
       return;
     }
@@ -113,13 +212,18 @@ function ensureActiveLobbySubscription(lobbyId) {
     state.multiplayer.activeLobby = normalizedLobby;
     if (!normalizedLobby) {
       state.multiplayer.activeLobbySubscription = null;
-      clearMatch();
-      if (state.screen === 'multiplayer-lobby-detail') {
-        state.screen = 'multiplayer-lobbies';
+      clearActiveLobbyExpiryTimer();
+      if (!state.multiplayer.currentMatchId) {
+        clearMatch();
+        if (state.screen === 'multiplayer-lobby-detail') {
+          state.screen = 'multiplayer-lobbies';
+        }
       }
       requestRender();
       return;
     }
+
+    scheduleActiveLobbyExpiry(normalizedLobby);
 
     const matchId = normalizedLobby.matchId || null;
     if (matchId && matchId !== state.multiplayer.currentMatchId) {
@@ -148,6 +252,7 @@ function cleanupActiveLobbySubscription() {
     state.multiplayer.activeLobbySubscription();
   }
   state.multiplayer.activeLobbySubscription = null;
+  clearActiveLobbyExpiryTimer();
 }
 
 function cleanupLobbyListSubscription() {
@@ -157,9 +262,16 @@ function cleanupLobbyListSubscription() {
   state.multiplayer.lobbySubscription = null;
 }
 
-function returnToModeSelectFromLobbies() {
+async function returnToModeSelectFromLobbies() {
+  const lobby = state.multiplayer.activeLobby;
+  const userId = state.auth.user?.id;
+  if (lobby && userId && lobby.hostUserId === userId && !state.multiplayer.currentMatchId) {
+    await deleteLobby(lobby.id, { silent: true });
+  }
   cleanupActiveLobbySubscription();
-  clearMatch();
+  if (!state.multiplayer.currentMatchId) {
+    clearMatch();
+  }
   cleanupLobbyListSubscription();
   state.multiplayer.activeLobby = null;
   state.multiplayer.lobbyList.lobbies = [];
@@ -181,7 +293,7 @@ export function attachMultiplayerEventHandlers(root) {
 
     if (action === 'back-mode-select' && state.screen === 'multiplayer-lobbies') {
       event.preventDefault();
-      returnToModeSelectFromLobbies();
+      await returnToModeSelectFromLobbies();
       return;
     }
 
@@ -219,12 +331,18 @@ export function attachMultiplayerEventHandlers(root) {
       const lobby = state.multiplayer.activeLobby;
       const userId = state.auth.user?.id;
       if (lobby && userId) {
+        if (lobby.hostUserId === userId && !state.multiplayer.currentMatchId) {
+          await deleteLobby(lobby.id);
+          return;
+        }
         if (lobby.guestUserId === userId) {
           await leaveSeat('guest');
         }
       }
       cleanupActiveLobbySubscription();
-      clearMatch();
+      if (!state.multiplayer.currentMatchId) {
+        clearMatch();
+      }
       state.multiplayer.activeLobby = null;
       state.screen = 'multiplayer-lobbies';
       requestRender();
@@ -333,6 +451,7 @@ async function claimSeat(seat) {
     [seatReadyKey]: false,
     [seatColorKey]: typeof lobby[seatColorKey] === 'string' ? lobby[seatColorKey] : '',
   };
+  updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
   await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
@@ -345,6 +464,11 @@ async function leaveSeat(seat) {
   const seatUserKey = seat === 'host' ? 'hostUserId' : 'guestUserId';
   if (lobby[seatUserKey] !== userId) return;
 
+  if (seat === 'host') {
+    await deleteLobby(lobby.id);
+    return;
+  }
+
   const updates = {
     updatedAt: Date.now(),
     [seatUserKey]: '',
@@ -352,6 +476,7 @@ async function leaveSeat(seat) {
     [seat === 'host' ? 'hostColor' : 'guestColor']: '',
     [seat === 'host' ? 'hostReady' : 'guestReady']: false,
   };
+  updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
   await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
@@ -377,6 +502,7 @@ async function chooseDeck(seat, color) {
     [seatColorKey]: color,
     [seatReadyKey]: false,
   };
+  updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
   await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
@@ -397,6 +523,7 @@ async function toggleReady(seat) {
     updatedAt: Date.now(),
     [seatReadyKey]: !lobby[seatReadyKey],
   };
+  updates.status = computeLobbyStatus({ ...lobby, ...updates });
 
   await runTransactions(db.tx.lobbies[lobby.id].update(updates));
 }
@@ -447,6 +574,12 @@ async function startMatch() {
     nextSequence: 2,
     createdAt: now,
     updatedAt: now,
+    hostUserId: lobby.hostUserId,
+    hostDisplayName: lobby.hostDisplayName,
+    hostColor: lobby.hostColor,
+    guestUserId: lobby.guestUserId,
+    guestDisplayName: lobby.guestDisplayName,
+    guestColor: lobby.guestColor,
   };
 
   const matchStartedEvent = {
@@ -494,6 +627,10 @@ async function startMatch() {
       updatedAt: now,
     };
     subscribeToMatch(matchId);
+    state.multiplayer.currentMatchId = matchId;
+    setTimeout(() => {
+      deleteLobby(lobby.id, { silent: true });
+    }, 1_000);
     requestRender();
   } catch (error) {
     console.error('Failed to start match', error);
@@ -502,7 +639,7 @@ async function startMatch() {
   }
 }
 
-function maybeCleanupStaleLobbies(lobbies) {
+async function maybeCleanupStaleLobbies(lobbies) {
   const now = Date.now();
   if (now - lastLobbyCleanupCheck < LOBBY_CLEANUP_THROTTLE_MS) {
     return;
@@ -530,7 +667,7 @@ function maybeCleanupStaleLobbies(lobbies) {
     const canDelete = Boolean(!lobby.hostUserId || (userId && lobby.hostUserId === userId));
     if (!canDelete) continue;
 
-    runTransactions(db.tx.lobbies[lobby.id].delete(), {
+    await runTransactions(db.tx.lobbies[lobby.id].delete(), {
       onError(error) {
         console.error('Failed to delete stale lobby', lobby.id, error);
       },
@@ -553,19 +690,12 @@ function refreshLobbySubscription() {
   const query = {
     lobbies: {
       $: {
-        where: {
-          status: { $in: ['open', 'ready', 'starting', 'playing'] },
-        },
-        orderBy: [
-          { field: 'status', direction: 'asc' },
-          { field: 'updatedAt', direction: 'desc' },
-        ],
         limit: LOBBY_QUERY_LIMIT,
       },
     },
   };
 
-  const unsubscribe = db.subscribeQuery(query, (snapshot) => {
+  const unsubscribe = db.subscribeQuery(query, async (snapshot) => {
     if (snapshot.error) {
       state.multiplayer.lobbyList.loading = false;
       state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
@@ -576,9 +706,21 @@ function refreshLobbySubscription() {
 
     const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
     const snapshotLobbies = (snapshot.data?.lobbies ?? []).map((lobby) => normalizeLobbyRecord(lobby));
-    maybeCleanupStaleLobbies(snapshotLobbies);
+    await maybeCleanupStaleLobbies(snapshotLobbies);
 
-    let lobbies = snapshotLobbies;
+    const allowedStatuses = new Set(['open', 'ready', 'starting', 'playing']);
+    let lobbies = snapshotLobbies.filter((lobby) => allowedStatuses.has(lobby.status));
+    const statusOrder = {
+      open: 0,
+      ready: 1,
+      starting: 2,
+      playing: 3,
+    };
+    lobbies.sort((a, b) => {
+      const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+      if (statusDelta !== 0) return statusDelta;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
     if (searchTerm) {
       lobbies = lobbies.filter((lobby) => {
         const host = (lobby.hostDisplayName || '').toLowerCase();
@@ -641,6 +783,7 @@ async function createLobby() {
     state.multiplayer.activeLobby = normalizeLobbyRecord(lobby);
     state.screen = 'multiplayer-lobby-detail';
     ensureActiveLobbySubscription(lobbyId);
+    rememberOwnedLobby(lobbyId);
     requestRender();
   } catch (error) {
     console.error('Failed to create lobby', error);
@@ -690,4 +833,13 @@ export function canCurrentUserAct() {
       localIndex === (game.currentPlayer === 0 ? 1 : 0),
   );
   return isActiveTurn || isPendingTarget || isBlockingTurn;
+}
+
+function computeLobbyStatus(lobby) {
+  if (!lobby) return 'open';
+  if (lobby.matchId) return lobby.status || 'starting';
+  const hostReady = Boolean(lobby.hostUserId && lobby.hostColor && lobby.hostReady);
+  const guestReady = Boolean(lobby.guestUserId && lobby.guestColor && lobby.guestReady);
+  if (hostReady && guestReady) return 'ready';
+  return 'open';
 }
