@@ -1,6 +1,13 @@
 import { attachParticleField, resetParticleFields } from './particleField.js';
 
-const PARTICLE_SCREENS = new Set(['menu', 'mode-select', 'color-select', 'game-over']);
+const PARTICLE_SCREENS = new Set([
+  'menu',
+  'mode-select',
+  'color-select',
+  'game-over',
+  'multiplayer-lobbies',
+  'multiplayer-lobby-detail',
+]);
 
 export function enhanceView(root, screen) {
   resetParticleFields();

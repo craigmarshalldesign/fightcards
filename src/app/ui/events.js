@@ -99,7 +99,163 @@ function cleanupActiveLobbySubscription() {
   state.multiplayer.activeLobbySubscription = null;
 }
 
+function cleanupLobbyListSubscription() {
+  if (typeof state.multiplayer.lobbySubscription === 'function') {
+    state.multiplayer.lobbySubscription();
+  }
+  state.multiplayer.lobbySubscription = null;
+}
+
+function returnToModeSelectFromLobbies() {
+  cleanupActiveLobbySubscription();
+  clearMatch();
+  cleanupLobbyListSubscription();
+  state.multiplayer.activeLobby = null;
+  state.multiplayer.lobbyList.lobbies = [];
+  state.multiplayer.lobbyList.loading = false;
+  state.multiplayer.lobbyList.error = null;
+  state.multiplayer.lobbyList.searchTerm = '';
+  state.screen = 'mode-select';
+  requestRender();
+}
+
+function bindMultiplayerLobbyEvents(root) {
+  if (root.__multiplayerLobbyHandlers) return;
+
+  const handleClick = async (event) => {
+    const target = event.target.closest('[data-action]');
+    if (!target || !root.contains(target)) return;
+
+    const action = target.getAttribute('data-action');
+
+    if (action === 'back-mode-select' && state.screen === 'multiplayer-lobbies') {
+      event.preventDefault();
+      returnToModeSelectFromLobbies();
+      return;
+    }
+
+    if (action === 'clear-search' && state.screen === 'multiplayer-lobbies') {
+      event.preventDefault();
+      state.multiplayer.lobbyList.searchTerm = '';
+      refreshLobbySubscription();
+      requestRender();
+      return;
+    }
+
+    if (action === 'create-lobby' && state.screen === 'multiplayer-lobbies') {
+      event.preventDefault();
+      await createLobby();
+      return;
+    }
+
+    if (action === 'view-lobby' && state.screen === 'multiplayer-lobbies') {
+      event.preventDefault();
+      const lobbyId = target.getAttribute('data-lobby');
+      if (!lobbyId) return;
+      const lobby = state.multiplayer.lobbyList.lobbies.find((l) => l.id === lobbyId);
+      state.multiplayer.activeLobby = lobby || null;
+      state.screen = 'multiplayer-lobby-detail';
+      ensureActiveLobbySubscription(lobbyId);
+      if (lobby?.matchId) {
+        subscribeToMatch(lobby.matchId);
+      }
+      requestRender();
+      return;
+    }
+
+    if (action === 'back-lobbies' && state.screen === 'multiplayer-lobby-detail') {
+      event.preventDefault();
+      cleanupActiveLobbySubscription();
+      clearMatch();
+      state.multiplayer.activeLobby = null;
+      state.screen = 'multiplayer-lobbies';
+      requestRender();
+      return;
+    }
+
+    if (action === 'claim-seat' && state.screen === 'multiplayer-lobby-detail') {
+      event.preventDefault();
+      const seat = target.getAttribute('data-seat');
+      if (!seat) return;
+      await claimSeat(seat);
+      return;
+    }
+
+    if (action === 'leave-seat' && state.screen === 'multiplayer-lobby-detail') {
+      event.preventDefault();
+      const seat = target.getAttribute('data-seat');
+      if (!seat) return;
+      await leaveSeat(seat);
+      return;
+    }
+
+    if (action === 'choose-deck' && state.screen === 'multiplayer-lobby-detail') {
+      event.preventDefault();
+      const seat = target.getAttribute('data-seat');
+      const color = target.getAttribute('data-color');
+      if (!seat || !color) return;
+      await chooseDeck(seat, color);
+      return;
+    }
+
+    if (action === 'toggle-ready' && state.screen === 'multiplayer-lobby-detail') {
+      event.preventDefault();
+      const seat = target.getAttribute('data-seat');
+      if (!seat) return;
+      await toggleReady(seat);
+      return;
+    }
+
+    if (action === 'start-match' && state.screen === 'multiplayer-lobby-detail') {
+      event.preventDefault();
+      await startMatch();
+      return;
+    }
+  };
+
+  const handleInput = (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
+      state.multiplayer.lobbyList.searchTerm = target.value ?? '';
+      requestRender();
+    }
+  };
+
+  const handleChange = (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
+      refreshLobbySubscription();
+    }
+  };
+
+  const handleKeydown = (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        refreshLobbySubscription();
+      }
+    }
+  };
+
+  root.addEventListener('click', handleClick);
+  root.addEventListener('input', handleInput);
+  root.addEventListener('change', handleChange);
+  root.addEventListener('keydown', handleKeydown);
+
+  root.__multiplayerLobbyHandlers = {
+    handleClick,
+    handleInput,
+    handleChange,
+    handleKeydown,
+  };
+}
+
 export function attachEventHandlers(root) {
+  bindMultiplayerLobbyEvents(root);
   ensureMultiplayerScreenSubscriptions();
   root.querySelectorAll('[data-action="start"]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -145,117 +301,6 @@ export function attachEventHandlers(root) {
       startGame(color);
     });
   });
-
-  const backModeSelectBtn = root.querySelector('[data-action="back-mode-select"]');
-  if (backModeSelectBtn) {
-    backModeSelectBtn.addEventListener('click', () => {
-      state.screen = 'mode-select';
-      requestRender();
-    });
-  }
-
-  const lobbySearchInput = root.querySelector('[data-action="search-lobbies"]');
-  if (lobbySearchInput) {
-    lobbySearchInput.addEventListener('input', (event) => {
-      const value = event.target.value ?? '';
-      state.multiplayer.lobbyList.searchTerm = value;
-      requestRender();
-    });
-    lobbySearchInput.addEventListener('change', () => {
-      refreshLobbySubscription();
-    });
-    lobbySearchInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        refreshLobbySubscription();
-      }
-    });
-  }
-
-  const clearSearchBtn = root.querySelector('[data-action="clear-search"]');
-  if (clearSearchBtn) {
-    clearSearchBtn.addEventListener('click', () => {
-      state.multiplayer.lobbyList.searchTerm = '';
-      refreshLobbySubscription();
-      const input = root.querySelector('[data-action="search-lobbies"]');
-      if (input) {
-        input.value = '';
-      }
-      requestRender();
-    });
-  }
-
-  root.querySelectorAll('[data-action="create-lobby"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await createLobby();
-    });
-  });
-
-  root.querySelectorAll('[data-action="view-lobby"]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      const lobbyId = event.currentTarget.getAttribute('data-lobby');
-      if (!lobbyId) return;
-      const lobby = state.multiplayer.lobbyList.lobbies.find((l) => l.id === lobbyId);
-      state.multiplayer.activeLobby = lobby || null;
-      state.screen = 'multiplayer-lobby-detail';
-      ensureActiveLobbySubscription(lobbyId);
-      if (lobby?.matchId) {
-        subscribeToMatch(lobby.matchId);
-      }
-      requestRender();
-    });
-  });
-
-  const backLobbiesBtn = root.querySelector('[data-action="back-lobbies"]');
-  if (backLobbiesBtn) {
-    backLobbiesBtn.addEventListener('click', () => {
-      cleanupActiveLobbySubscription();
-      clearMatch();
-      state.multiplayer.activeLobby = null;
-      state.screen = 'multiplayer-lobbies';
-      requestRender();
-    });
-  }
-
-  root.querySelectorAll('[data-action="claim-seat"]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
-      const seat = event.currentTarget.getAttribute('data-seat');
-      if (!seat) return;
-      await claimSeat(seat);
-    });
-  });
-
-  root.querySelectorAll('[data-action="leave-seat"]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
-      const seat = event.currentTarget.getAttribute('data-seat');
-      if (!seat) return;
-      await leaveSeat(seat);
-    });
-  });
-
-  root.querySelectorAll('[data-action="choose-deck"]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
-      const seat = event.currentTarget.getAttribute('data-seat');
-      const color = event.currentTarget.getAttribute('data-color');
-      if (!seat || !color) return;
-      await chooseDeck(seat, color);
-    });
-  });
-
-  root.querySelectorAll('[data-action="toggle-ready"]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
-      const seat = event.currentTarget.getAttribute('data-seat');
-      if (!seat) return;
-      await toggleReady(seat);
-    });
-  });
-
-  const startMatchBtn = root.querySelector('[data-action="start-match"]');
-  if (startMatchBtn) {
-    startMatchBtn.addEventListener('click', async () => {
-      await startMatch();
-    });
-  }
 
   const restartBtn = root.querySelector('[data-action="restart"]');
   if (restartBtn) {
@@ -788,10 +833,7 @@ function canCurrentUserAct() {
 }
 
 function refreshLobbySubscription() {
-  if (typeof state.multiplayer.lobbySubscription === 'function') {
-    state.multiplayer.lobbySubscription();
-    state.multiplayer.lobbySubscription = null;
-  }
+  cleanupLobbyListSubscription();
 
   state.multiplayer.lobbyList.loading = true;
   state.multiplayer.lobbyList.error = null;
