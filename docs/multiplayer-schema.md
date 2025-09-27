@@ -52,6 +52,13 @@ export const schema = i.schema({
 
 > **Note:** Optional seat/display fields are written as empty strings while the slot is open. The client also prunes host-owned lobbies that stay open without a guest for longer than 60 seconds by deleting the record from InstantDB.
 
+### Client Lobby Flow
+
+- The lobby browser subscribes to the 20 most recent entries whose `status` is one of `open`, `ready`, `starting`, or `playing`. Results are ordered by status and last update time so newly active rooms bubble to the top of the list.
+- Player name search is performed entirely client-side by matching the lower-cased `hostDisplayName` and `guestDisplayName` fields. The `searchKey` column exists to speed up server-side filtering if rules are added later.
+- Before creating a new lobby, the host deletes any of their previous open rooms that have been idle for 60 seconds. This keeps the listing clean and prevents duplicate "ghost" lobbies from appearing across multiple devices.
+- Joining a lobby installs a dedicated subscription for that record so seat changes, deck picks, and ready states stream into the detail view without polling.
+
 ### `matches`
 | Field | Type | Description |
 |-------|------|-------------|
