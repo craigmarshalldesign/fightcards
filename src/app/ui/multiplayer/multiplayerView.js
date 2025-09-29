@@ -6,7 +6,8 @@ import '../views/basicViews.css';
 export function renderMultiplayerLobby() {
   const { lobbyList } = state.multiplayer;
   const { loading, error, lobbies, searchTerm } = lobbyList;
-  const refreshDisabled = loading ? 'disabled' : '';
+  const refreshAttrs = loading ? 'data-busy="true" aria-busy="true"' : '';
+  const refreshLabel = loading ? 'Refreshing…' : 'Refresh';
   const lobbyItems = lobbies
     .map((lobby) => {
       const hostName = escapeHtml(lobby.hostDisplayName || 'Unknown');
@@ -61,7 +62,7 @@ export function renderMultiplayerLobby() {
             <button class="ghost mini" data-action="clear-search" ${searchTerm ? '' : 'disabled'}>Clear</button>
           </div>
           <div class="toolbar-actions">
-            <button class="ghost mini" data-action="refresh-lobbies" ${refreshDisabled}>Refresh</button>
+            <button class="ghost mini" data-action="refresh-lobbies" ${refreshAttrs}>${refreshLabel}</button>
             <button class="primary" data-action="create-lobby">Create Lobby</button>
           </div>
         </div>
