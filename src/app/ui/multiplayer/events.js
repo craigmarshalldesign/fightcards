@@ -736,10 +736,6 @@ async function maybeCleanupStaleLobbies(lobbies) {
 function refreshLobbySubscription() {
   cleanupLobbyListSubscription();
 
-  state.multiplayer.lobbyList.loading = true;
-  state.multiplayer.lobbyList.error = null;
-  requestRender();
-
   const query = {
     lobbies: {
       $: {
@@ -774,7 +770,15 @@ function refreshLobbySubscription() {
     return;
   }
 
-  state.multiplayer.lobbySubscription = unsubscribe;
+  if (typeof unsubscribe === 'function') {
+    state.multiplayer.lobbySubscription = unsubscribe;
+  } else {
+    console.warn('Unexpected lobby subscription handle; falling back to no-op close.');
+    state.multiplayer.lobbySubscription = () => {};
+  }
+  state.multiplayer.lobbyList.loading = true;
+  state.multiplayer.lobbyList.error = null;
+  requestRender();
   primeLobbyListing(query);
 }
 
