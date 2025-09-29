@@ -762,7 +762,7 @@ function refreshLobbySubscription() {
         return;
       }
 
-      await updateLobbyListFromSnapshot(snapshot.data?.lobbies ?? []);
+      updateLobbyListFromSnapshot(snapshot.data?.lobbies ?? []);
       },
       { ruleParams: MULTIPLAYER_RULE_PARAMS },
     );
@@ -778,9 +778,24 @@ function refreshLobbySubscription() {
   primeLobbyListing(query);
 }
 
-async function updateLobbyListFromSnapshot(rawLobbies) {
-  const normalizedLobbies = rawLobbies.map((lobby) => normalizeLobbyRecord(lobby)).filter(Boolean);
-  await maybeCleanupStaleLobbies(normalizedLobbies);
+function updateLobbyListFromSnapshot(rawLobbies) {
+  let normalizedLobbies = [];
+  try {
+    normalizedLobbies = rawLobbies.map((lobby) => normalizeLobbyRecord(lobby)).filter(Boolean);
+  } catch (error) {
+    console.error('Failed to normalize lobby snapshot', error);
+    state.multiplayer.lobbyList.loading = false;
+    state.multiplayer.lobbyList.error = 'Unable to load lobbies. Please try again.';
+    state.multiplayer.lobbyList.lobbies = [];
+    requestRender();
+    return;
+  }
+
+  if (normalizedLobbies.length) {
+    maybeCleanupStaleLobbies(normalizedLobbies).catch((error) => {
+      console.error('Failed to cleanup stale lobbies', error);
+    });
+  }
 
   let lobbies = normalizedLobbies.filter((lobby) => VISIBLE_LOBBY_STATUSES.includes(lobby.status));
   const statusOrder = {
@@ -816,7 +831,7 @@ async function primeLobbyListing(query) {
     if (snapshot?.error) {
       throw snapshot.error;
     }
-    await updateLobbyListFromSnapshot(snapshot?.data?.lobbies ?? []);
+    updateLobbyListFromSnapshot(snapshot?.data?.lobbies ?? []);
   } catch (error) {
     console.error('Failed to load latest lobbies', error);
     state.multiplayer.lobbyList.loading = false;
