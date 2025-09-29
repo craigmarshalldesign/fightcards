@@ -762,35 +762,7 @@ function refreshLobbySubscription() {
         return;
       }
 
-      const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
-      const snapshotLobbies = (snapshot.data?.lobbies ?? [])
-        .map((lobby) => normalizeLobbyRecord(lobby))
-        .filter(Boolean);
-      await maybeCleanupStaleLobbies(snapshotLobbies);
-
-      let lobbies = snapshotLobbies.filter((lobby) => VISIBLE_LOBBY_STATUSES.includes(lobby.status));
-      const statusOrder = {
-        open: 0,
-        ready: 1,
-        starting: 2,
-        playing: 3,
-    };
-    lobbies.sort((a, b) => {
-      const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
-      if (statusDelta !== 0) return statusDelta;
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
-    if (searchTerm) {
-      lobbies = lobbies.filter((lobby) => {
-        const host = (lobby.hostDisplayName || '').toLowerCase();
-        const guest = (lobby.guestDisplayName || '').toLowerCase();
-        return host.includes(searchTerm) || guest.includes(searchTerm);
-      });
-    }
-
-      state.multiplayer.lobbyList.lobbies = lobbies;
-      state.multiplayer.lobbyList.loading = false;
-      requestRender();
+      await updateLobbyListFromSnapshot(snapshot.data?.lobbies ?? []);
       },
       { ruleParams: MULTIPLAYER_RULE_PARAMS },
     );
@@ -803,6 +775,56 @@ function refreshLobbySubscription() {
   }
 
   state.multiplayer.lobbySubscription = unsubscribe;
+  primeLobbyListing(query);
+}
+
+async function updateLobbyListFromSnapshot(rawLobbies) {
+  const normalizedLobbies = rawLobbies.map((lobby) => normalizeLobbyRecord(lobby)).filter(Boolean);
+  await maybeCleanupStaleLobbies(normalizedLobbies);
+
+  let lobbies = normalizedLobbies.filter((lobby) => VISIBLE_LOBBY_STATUSES.includes(lobby.status));
+  const statusOrder = {
+    open: 0,
+    ready: 1,
+    starting: 2,
+    playing: 3,
+  };
+  lobbies.sort((a, b) => {
+    const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+    if (statusDelta !== 0) return statusDelta;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+
+  const searchTerm = state.multiplayer.lobbyList.searchTerm.trim().toLowerCase();
+  if (searchTerm) {
+    lobbies = lobbies.filter((lobby) => {
+      const host = (lobby.hostDisplayName || '').toLowerCase();
+      const guest = (lobby.guestDisplayName || '').toLowerCase();
+      return host.includes(searchTerm) || guest.includes(searchTerm);
+    });
+  }
+
+  state.multiplayer.lobbyList.lobbies = lobbies;
+  state.multiplayer.lobbyList.loading = false;
+  state.multiplayer.lobbyList.error = null;
+  requestRender();
+}
+
+async function primeLobbyListing(query) {
+  try {
+    const snapshot = await db.queryOnce(query, { ruleParams: MULTIPLAYER_RULE_PARAMS });
+    if (snapshot?.error) {
+      throw snapshot.error;
+    }
+    await updateLobbyListFromSnapshot(snapshot?.data?.lobbies ?? []);
+  } catch (error) {
+    console.error('Failed to load latest lobbies', error);
+    state.multiplayer.lobbyList.loading = false;
+    if (!state.multiplayer.lobbyList.lobbies.length) {
+      state.multiplayer.lobbyList.error = 'Unable to load lobbies. Please try again.';
+    }
+    requestRender();
+  }
 }
 
 async function createLobby() {
