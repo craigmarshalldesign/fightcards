@@ -7,8 +7,8 @@ import {
   applyMultiplayerRuleParams,
 } from '../../multiplayer/rules.js';
 
-const LOBBY_QUERY_LIMIT = 20;
-const LOBBY_FALLBACK_LIMIT = 60;
+const LOBBY_QUERY_LIMIT = 10;
+const LOBBY_FALLBACK_LIMIT = 10;
 const STALE_LOBBY_TIMEOUT_MS = 60_000;
 const LOBBY_CLEANUP_THROTTLE_MS = 5_000;
 const ACTIVE_LOBBY_TTL_MS = 60_000;
@@ -162,7 +162,12 @@ async function deleteLobby(lobbyId, { silent = false } = {}) {
   if (!success) return false;
 
   if (state.multiplayer.activeLobby?.id === lobbyId) {
-    clearActiveLobbyExpiryTimer();
+    if (state.multiplayer.activeLobbySubscriptionId === lobbyId) {
+      cleanupActiveLobbySubscription();
+    } else {
+      clearActiveLobbyExpiryTimer();
+      state.multiplayer.autoJoinInFlight = null;
+    }
     state.multiplayer.activeLobby = null;
     if (!state.multiplayer.currentMatchId) {
       state.screen = 'multiplayer-lobbies';
@@ -201,10 +206,14 @@ function scheduleActiveLobbyExpiry(lobby) {
 
 function ensureActiveLobbySubscription(lobbyId) {
   if (!lobbyId) return;
-  if (state.multiplayer.activeLobbySubscription) {
-    state.multiplayer.activeLobbySubscription();
-    state.multiplayer.activeLobbySubscription = null;
+  if (
+    state.multiplayer.activeLobbySubscriptionId === lobbyId &&
+    typeof state.multiplayer.activeLobbySubscription === 'function'
+  ) {
+    return;
   }
+
+  cleanupActiveLobbySubscription();
 
   const query = {
     lobbies: {
@@ -221,6 +230,8 @@ function ensureActiveLobbySubscription(lobbyId) {
     if (snapshot.error) {
       state.multiplayer.activeLobby = null;
       state.multiplayer.activeLobbySubscription = null;
+      state.multiplayer.activeLobbySubscriptionId = null;
+      state.multiplayer.autoJoinInFlight = null;
       if (!state.multiplayer.currentMatchId) {
         clearMatch();
       }
@@ -233,6 +244,8 @@ function ensureActiveLobbySubscription(lobbyId) {
     state.multiplayer.activeLobby = normalizedLobby;
     if (!normalizedLobby) {
       state.multiplayer.activeLobbySubscription = null;
+      state.multiplayer.activeLobbySubscriptionId = null;
+      state.multiplayer.autoJoinInFlight = null;
       clearActiveLobbyExpiryTimer();
       if (!state.multiplayer.currentMatchId) {
         clearMatch();
@@ -245,6 +258,10 @@ function ensureActiveLobbySubscription(lobbyId) {
     }
 
     scheduleActiveLobbyExpiry(normalizedLobby);
+
+    maybeAutoJoinSeat(normalizedLobby).catch((error) => {
+      console.error('Failed to auto-join lobby', error);
+    });
 
     const matchId = normalizedLobby.matchId || null;
     if (matchId && matchId !== state.multiplayer.currentMatchId) {
@@ -268,6 +285,7 @@ function ensureActiveLobbySubscription(lobbyId) {
   );
 
   state.multiplayer.activeLobbySubscription = unsubscribe;
+  state.multiplayer.activeLobbySubscriptionId = lobbyId;
 }
 
 function cleanupActiveLobbySubscription() {
@@ -275,7 +293,51 @@ function cleanupActiveLobbySubscription() {
     state.multiplayer.activeLobbySubscription();
   }
   state.multiplayer.activeLobbySubscription = null;
+  state.multiplayer.activeLobbySubscriptionId = null;
+  state.multiplayer.autoJoinInFlight = null;
   clearActiveLobbyExpiryTimer();
+}
+
+async function maybeAutoJoinSeat(lobby) {
+  if (!lobby || lobby.matchId) {
+    state.multiplayer.autoJoinInFlight = null;
+    return;
+  }
+
+  if (state.screen !== 'multiplayer-lobby-detail') {
+    return;
+  }
+
+  const userId = state.auth.user?.id;
+  if (!userId) {
+    state.multiplayer.autoJoinInFlight = null;
+    return;
+  }
+
+  if (lobby.hostUserId === userId || lobby.guestUserId === userId) {
+    if (state.multiplayer.autoJoinInFlight === lobby.id) {
+      state.multiplayer.autoJoinInFlight = null;
+    }
+    return;
+  }
+
+  if (lobby.guestUserId) {
+    state.multiplayer.autoJoinInFlight = null;
+    return;
+  }
+
+  if (state.multiplayer.autoJoinInFlight === lobby.id) {
+    return;
+  }
+
+  state.multiplayer.autoJoinInFlight = lobby.id;
+  try {
+    await claimSeat('guest');
+  } finally {
+    if (state.multiplayer.autoJoinInFlight === lobby.id) {
+      state.multiplayer.autoJoinInFlight = null;
+    }
+  }
 }
 
 function cleanupLobbyListSubscription() {
@@ -487,6 +549,7 @@ async function claimSeat(seat) {
   });
   if (success) {
     state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
+    state.multiplayer.autoJoinInFlight = null;
     requestRender();
   }
 }
@@ -518,6 +581,7 @@ async function leaveSeat(seat) {
   });
   if (success) {
     state.multiplayer.activeLobby = normalizeLobbyRecord({ ...lobby, ...updates });
+    state.multiplayer.autoJoinInFlight = null;
     requestRender();
   }
 }

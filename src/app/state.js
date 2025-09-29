@@ -23,6 +23,7 @@ export const initialState = {
     activeLobby: null,
     lobbySubscription: null,
     activeLobbySubscription: null,
+    activeLobbySubscriptionId: null,
     cardCache: null,
     match: null,
     matchSubscription: null,
@@ -31,6 +32,7 @@ export const initialState = {
     currentMatchId: null,
     lastSequenceApplied: 0,
     replayingEvents: false,
+    autoJoinInFlight: null,
   },
   game: null,
   ui: {
@@ -80,6 +82,7 @@ export function resetToMenu() {
     state.multiplayer.activeLobbySubscription();
   }
   state.multiplayer.activeLobbySubscription = null;
+  state.multiplayer.activeLobbySubscriptionId = null;
   if (typeof state.multiplayer.matchSubscription === 'function') {
     state.multiplayer.matchSubscription();
   }
@@ -90,6 +93,7 @@ export function resetToMenu() {
   state.multiplayer.currentMatchId = null;
   state.multiplayer.lastSequenceApplied = 0;
   state.multiplayer.replayingEvents = false;
+  state.multiplayer.autoJoinInFlight = null;
   state.screen = 'menu';
   state.ui.previewCard = null;
   requestRender();
