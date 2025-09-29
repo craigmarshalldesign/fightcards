@@ -111,7 +111,7 @@ export function renderLobbyDetail() {
     return renderHostLobbyDetail(activeLobby, lobbyTitle, statusLabel);
   }
   if (!activeLobby.guestUserId || isGuestUser) {
-    return renderGuestLobbyDetail(activeLobby, lobbyTitle, statusLabel, isGuestUser);
+    return renderGuestLobbyDetail(activeLobby, lobbyTitle, statusLabel);
   }
   return renderLockedLobbyDetail(activeLobby, lobbyTitle, statusLabel);
 }
@@ -214,12 +214,17 @@ function renderHostLobbyDetail(lobby, lobbyTitle, statusLabel) {
   `;
 }
 
-function renderGuestLobbyDetail(lobby, lobbyTitle, statusLabel, isGuestUser) {
+function renderGuestLobbyDetail(lobby, lobbyTitle, statusLabel) {
+  const userId = state.auth.user?.id || '';
+  const isLocalGuest = lobby.guestUserId && userId ? lobby.guestUserId === userId : false;
+  const canAutoJoinSeat = Boolean(userId && lobby.hostUserId !== userId);
   const guestReadyClass = lobby.guestUserId
     ? lobby.guestReady
       ? 'ready'
       : 'waiting'
-    : 'open';
+    : canAutoJoinSeat
+      ? 'waiting'
+      : 'open';
   const guestReadyLabel = lobby.guestReady ? 'Unready' : 'Ready Up';
   const guestHasDeck = Boolean(lobby.guestColor);
   const guestDeckName = lobby.guestColor
@@ -243,29 +248,36 @@ function renderGuestLobbyDetail(lobby, lobbyTitle, statusLabel, isGuestUser) {
     : '';
 
   let guestControls = '';
-  if (!lobby.guestUserId) {
-    guestControls = `
-      <div class="guest-actions">
-        <button class="primary large" data-action="claim-seat" data-seat="guest">Join Lobby</button>
-      </div>
-    `;
-  } else if (isGuestUser) {
+  if (isLocalGuest || (!lobby.guestUserId && canAutoJoinSeat)) {
+    const readyDisabled = isLocalGuest && guestHasDeck ? '' : 'disabled';
+    const readinessHint = isLocalGuest
+      ? guestHasDeck
+        ? ''
+        : '<p class="ready-hint">Pick a deck to enable ready.</p>'
+      : '<p class="ready-hint">Claiming seat…</p>';
     guestControls = `
       <div class="guest-controls">
         ${renderDeckPills('guest', lobby.guestColor, lobby.hostColor)}
         <div class="ready-controls">
-          <button class="primary large" data-action="toggle-ready" data-seat="guest" ${
-            guestHasDeck ? '' : 'disabled'
-          }>${guestReadyLabel}</button>
-          ${guestHasDeck ? '' : '<p class="ready-hint">Pick a deck to enable ready.</p>'}
+          <button class="primary large" data-action="toggle-ready" data-seat="guest" ${readyDisabled}>${guestReadyLabel}</button>
+          ${readinessHint}
         </div>
       </div>
     `;
+  } else if (!lobby.guestUserId && !canAutoJoinSeat) {
+    guestControls = '<p class="lobby-card-subtitle">Sign in to take this seat.</p>';
   } else {
     guestControls = '<p class="lobby-card-subtitle">Guest seat is taken.</p>';
   }
 
-  const actionHint = lobby.hostReady && lobby.guestReady ? 'Waiting for the host to launch the match.' : 'Ready up when you are set.';
+  let actionHint = 'Ready up when you are set.';
+  if (lobby.hostReady && lobby.guestReady) {
+    actionHint = 'Waiting for the host to launch the match.';
+  } else if (!lobby.guestUserId && canAutoJoinSeat) {
+    actionHint = 'Claiming your seat…';
+  } else if (!lobby.guestUserId && !canAutoJoinSeat) {
+    actionHint = 'Sign in to join this lobby.';
+  }
 
   return `
     <div class="view hero-view lobby-detail">
@@ -289,13 +301,19 @@ function renderGuestLobbyDetail(lobby, lobbyTitle, statusLabel, isGuestUser) {
             <p class="lobby-card-subtitle">Deck: ${hostDeckName}</p>
             <p class="opponent-message">${hostMessage}</p>
           </section>
-          <section class="lobby-card guest-card ${guestReadyClass}"${guestStyle}>
-            <header>
-              <h3>Your Seat</h3>
-              <span class="ready-state ${guestReadyClass}">${
-                lobby.guestUserId ? (lobby.guestReady ? 'Ready' : 'Waiting') : 'Open'
-              }</span>
-            </header>
+            <section class="lobby-card guest-card ${guestReadyClass}"${guestStyle}>
+              <header>
+                <h3>Your Seat</h3>
+                <span class="ready-state ${guestReadyClass}">${
+                  lobby.guestUserId
+                    ? lobby.guestReady
+                      ? 'Ready'
+                      : 'Waiting'
+                    : canAutoJoinSeat
+                      ? 'Waiting'
+                      : 'Open'
+                }</span>
+              </header>
             <p class="lobby-card-label">${guestDeckName}</p>
             <p class="lobby-card-subtitle">${actionHint}</p>
             ${guestControls}

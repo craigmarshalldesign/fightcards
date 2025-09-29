@@ -8,7 +8,6 @@ import {
 } from '../../multiplayer/rules.js';
 
 const LOBBY_QUERY_LIMIT = 10;
-const LOBBY_FALLBACK_LIMIT = 10;
 const STALE_LOBBY_TIMEOUT_MS = 60_000;
 const LOBBY_CLEANUP_THROTTLE_MS = 5_000;
 const ACTIVE_LOBBY_TTL_MS = 60_000;
@@ -17,7 +16,6 @@ const VISIBLE_LOBBY_STATUSES = ['open', 'ready', 'starting', 'playing'];
 
 let lastLobbyCleanupCheck = 0;
 let activeLobbyExpiryTimer = null;
-let lobbyOrderingDisabled = false;
 
 function ensureString(value) {
   return typeof value === 'string' ? value : '';
@@ -410,6 +408,11 @@ export function attachMultiplayerEventHandlers(root) {
       state.multiplayer.activeLobby = lobby ? normalizeLobbyRecord(lobby) : null;
       state.screen = 'multiplayer-lobby-detail';
       ensureActiveLobbySubscription(lobbyId);
+      if (state.multiplayer.activeLobby) {
+        maybeAutoJoinSeat(state.multiplayer.activeLobby).catch((error) => {
+          console.error('Failed to auto-join lobby', error);
+        });
+      }
       if (lobby?.matchId) {
         subscribeToMatch(lobby.matchId);
       }
@@ -799,34 +802,13 @@ async function maybeCleanupStaleLobbies(lobbies) {
   }
 }
 
-function isOrderingIndexError(error) {
-  if (!error) return false;
-  const message = typeof error === 'string' ? error : error.message || '';
-  if (!message) return false;
-  const normalized = message.toLowerCase();
-  return normalized.includes('not indexed') || normalized.includes('not typed');
-}
-
 function buildLobbyQuery() {
-  const limit = lobbyOrderingDisabled ? LOBBY_FALLBACK_LIMIT : LOBBY_QUERY_LIMIT;
-  const config = { limit };
-  if (!lobbyOrderingDisabled) {
-    config.order = { updatedAt: 'desc' };
-  }
+  const config = { limit: LOBBY_QUERY_LIMIT };
   return {
     lobbies: {
       $: config,
     },
   };
-}
-
-function disableLobbyOrdering() {
-  if (lobbyOrderingDisabled) {
-    return false;
-  }
-  lobbyOrderingDisabled = true;
-  console.warn('InstantDB lobby ordering disabled; falling back to client-side sorting.');
-  return true;
 }
 
 function refreshLobbySubscription() {
@@ -840,12 +822,6 @@ function refreshLobbySubscription() {
       query,
       async (snapshot) => {
       if (snapshot.error) {
-        if (!lobbyOrderingDisabled && isOrderingIndexError(snapshot.error)) {
-          if (disableLobbyOrdering()) {
-            refreshLobbySubscription();
-            return;
-          }
-        }
         state.multiplayer.lobbyList.loading = false;
         state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
         state.multiplayer.lobbyList.lobbies = [];
@@ -932,13 +908,6 @@ async function primeLobbyListing(query) {
     }
     updateLobbyListFromSnapshot(snapshot?.data?.lobbies ?? []);
   } catch (error) {
-    if (!lobbyOrderingDisabled && isOrderingIndexError(error)) {
-      const disabled = disableLobbyOrdering();
-      if (disabled) {
-        refreshLobbySubscription();
-        return;
-      }
-    }
     console.error('Failed to load latest lobbies', error);
     state.multiplayer.lobbyList.loading = false;
     if (!state.multiplayer.lobbyList.lobbies.length) {
