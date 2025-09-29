@@ -20,6 +20,23 @@ export function applyMultiplayerRuleParams(chunk) {
   if (!chunk || typeof chunk.ruleParams !== 'function') {
     return chunk;
   }
-  return chunk.ruleParams(MULTIPLAYER_RULE_PARAMS);
+  const ops = Array.isArray(chunk.__ops) ? chunk.__ops : null;
+  const alreadyApplied = Boolean(ops && ops.some((step) => step?.[0] === 'ruleParams'));
+  const withRuleParams = alreadyApplied
+    ? chunk
+    : chunk.ruleParams(MULTIPLAYER_RULE_PARAMS);
+
+  const finalOps = Array.isArray(withRuleParams?.__ops) ? withRuleParams.__ops : null;
+  if (!finalOps) {
+    return withRuleParams;
+  }
+
+  const ruleIndex = finalOps.findIndex((step) => step?.[0] === 'ruleParams');
+  if (ruleIndex > 0) {
+    const [ruleStep] = finalOps.splice(ruleIndex, 1);
+    finalOps.unshift(ruleStep);
+  }
+
+  return withRuleParams;
 }
 
