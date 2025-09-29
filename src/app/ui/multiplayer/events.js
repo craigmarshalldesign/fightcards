@@ -8,6 +8,7 @@ import {
 } from '../../multiplayer/rules.js';
 
 const LOBBY_QUERY_LIMIT = 20;
+const LOBBY_FALLBACK_LIMIT = 60;
 const STALE_LOBBY_TIMEOUT_MS = 60_000;
 const LOBBY_CLEANUP_THROTTLE_MS = 5_000;
 const ACTIVE_LOBBY_TTL_MS = 60_000;
@@ -16,6 +17,7 @@ const VISIBLE_LOBBY_STATUSES = ['open', 'ready', 'starting', 'playing'];
 
 let lastLobbyCleanupCheck = 0;
 let activeLobbyExpiryTimer = null;
+let lobbyOrderingDisabled = false;
 
 function ensureString(value) {
   return typeof value === 'string' ? value : '';
@@ -733,17 +735,40 @@ async function maybeCleanupStaleLobbies(lobbies) {
   }
 }
 
+function isOrderingIndexError(error) {
+  if (!error) return false;
+  const message = typeof error === 'string' ? error : error.message || '';
+  if (!message) return false;
+  const normalized = message.toLowerCase();
+  return normalized.includes('not indexed') || normalized.includes('not typed');
+}
+
+function buildLobbyQuery() {
+  const limit = lobbyOrderingDisabled ? LOBBY_FALLBACK_LIMIT : LOBBY_QUERY_LIMIT;
+  const config = { limit };
+  if (!lobbyOrderingDisabled) {
+    config.order = { updatedAt: 'desc' };
+  }
+  return {
+    lobbies: {
+      $: config,
+    },
+  };
+}
+
+function disableLobbyOrdering() {
+  if (lobbyOrderingDisabled) {
+    return false;
+  }
+  lobbyOrderingDisabled = true;
+  console.warn('InstantDB lobby ordering disabled; falling back to client-side sorting.');
+  return true;
+}
+
 function refreshLobbySubscription() {
   cleanupLobbyListSubscription();
 
-  const query = {
-    lobbies: {
-      $: {
-        order: { updatedAt: 'desc' },
-        limit: LOBBY_QUERY_LIMIT,
-      },
-    },
-  };
+  const query = buildLobbyQuery();
 
   let unsubscribe;
   try {
@@ -751,6 +776,12 @@ function refreshLobbySubscription() {
       query,
       async (snapshot) => {
       if (snapshot.error) {
+        if (!lobbyOrderingDisabled && isOrderingIndexError(snapshot.error)) {
+          if (disableLobbyOrdering()) {
+            refreshLobbySubscription();
+            return;
+          }
+        }
         state.multiplayer.lobbyList.loading = false;
         state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
         state.multiplayer.lobbyList.lobbies = [];
@@ -837,6 +868,13 @@ async function primeLobbyListing(query) {
     }
     updateLobbyListFromSnapshot(snapshot?.data?.lobbies ?? []);
   } catch (error) {
+    if (!lobbyOrderingDisabled && isOrderingIndexError(error)) {
+      const disabled = disableLobbyOrdering();
+      if (disabled) {
+        refreshLobbySubscription();
+        return;
+      }
+    }
     console.error('Failed to load latest lobbies', error);
     state.multiplayer.lobbyList.loading = false;
     if (!state.multiplayer.lobbyList.lobbies.length) {
