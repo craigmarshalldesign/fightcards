@@ -24,9 +24,23 @@ import {
 import { cardToEventPayload } from './flow.js';
 
 export function resolveEffects(effects, pending) {
+  let previousTargets = [];
   effects.forEach((effect, idx) => {
-    const targets = pending.chosenTargets[idx] || [];
+    let targets = pending.chosenTargets[idx] || [];
+    
+    // CRITICAL: For effects without explicit targets (like grantShimmer after temporaryBuff),
+    // reuse targets from the previous effect so both apply to the same creature
+    if (targets.length === 0 && previousTargets.length > 0) {
+      targets = previousTargets;
+    }
+    
     applyEffect(effect, pending.controller, targets, pending.card);
+    
+    // Store targets for next effect
+    if (targets.length > 0) {
+      previousTargets = targets;
+    }
+    
     // NOTE: EFFECT_RESOLVED events were removed - they're redundant!
     // resolveEffects() is already called during PENDING_RESOLVED event replay,
     // so both players execute the same effects. No need for separate events.
@@ -202,19 +216,31 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
       break;
     }
     case 'gainLife': {
-      // CRITICAL: In multiplayer, only emit event - don't modify life locally
-      // The event replay will handle life changes for both players
-      if (!isMultiplayerMatchActive()) {
-        // Single-player: apply immediately
+      // CRITICAL: Check if we're replaying events
+      // If replaying, apply directly; otherwise emit event for multiplayer sync
+      if (!isMultiplayerMatchActive() || state.multiplayer?.replayingEvents) {
+        // Single-player OR event replay: apply immediately
         controller.life += effect.amount;
         addLog([playerSegment(controller), textSegment(' gains '), healSegment(effect.amount), textSegment(' life.')]);
       } else {
-        // Multiplayer: only emit event
+        // Multiplayer (not replaying): only emit event
         enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.LIFE_CHANGED, {
           controller: controllerIndex,
           delta: effect.amount,
           life: controller.life + effect.amount,
         });
+      }
+      break;
+    }
+    case 'gainMana': {
+      // CRITICAL: Temporary mana effect - adds to availableMana but not maxMana
+      // Mana naturally resets at the start of next turn when availableMana = maxMana
+      // Works in both single-player and multiplayer (no need for events since mana is temporary)
+      const previousMana = controller.availableMana;
+      controller.availableMana = Math.min(10, controller.availableMana + effect.amount);
+      const actualGain = controller.availableMana - previousMana;
+      if (actualGain > 0) {
+        addLog([playerSegment(controller), textSegment(` gains ${actualGain} temporary mana (${controller.availableMana} mana available).`)]);
       }
       break;
     }

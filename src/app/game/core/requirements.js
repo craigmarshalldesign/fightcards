@@ -58,14 +58,16 @@ export function buildEffectRequirements(effects = []) {
         break;
       }
       case 'temporaryBuff': {
-        if (effect.target === 'friendly-creature' || effect.target === 'any-creature') {
-          reqs.push({ ...requirementBase, count: 1, target: effect.target });
+        if (['friendly-creature', 'any-creature', 'creature'].includes(effect.target)) {
+          const target = effect.target === 'creature' ? 'creature' : effect.target;
+          reqs.push({ ...requirementBase, count: 1, target });
         }
         break;
       }
       case 'grantShimmer': {
-        if (effect.target === 'friendly-creature' || effect.target === 'any-creature') {
-          reqs.push({ ...requirementBase, count: 1, target: effect.target });
+        if (['friendly-creature', 'any-creature', 'creature'].includes(effect.target)) {
+          const target = effect.target === 'creature' ? 'creature' : effect.target;
+          reqs.push({ ...requirementBase, count: 1, target });
         }
         break;
       }

@@ -372,6 +372,27 @@ export function activateCreatureAbility(creatureId) {
   };
 
   if (!requirements.length) {
+    // CRITICAL: For abilities with no targeting requirements (like gainMana)
+    // In multiplayer, emit event so both players see it
+    // In single-player, execute immediately
+    if (isMultiplayerMatchActive()) {
+      // Multiplayer: emit PENDING_RESOLVED event (skip PENDING_CREATED since no targeting needed)
+      const player = game.players[localPlayerIndex];
+      spendMana(player, creature.activated.cost ?? 0);
+      creature.activatedThisTurn = true;
+      
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
+        controller: localPlayerIndex,
+        kind: 'ability',
+        card: cardToEventPayload(creature),
+        chosenTargets: {},
+        effects: [effect],
+      });
+      requestRender();
+      return;
+    }
+    
+    // Single-player: execute immediately
     const player = game.players[localPlayerIndex];
     spendMana(player, creature.activated.cost ?? 0);
     creature.activatedThisTurn = true;

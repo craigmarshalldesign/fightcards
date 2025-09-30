@@ -19,14 +19,14 @@ export const blueSpells = [
   },
   {
     id: 'blue_spell_3',
-    name: 'Refraction Burst',
+    name: 'Shimmer Strike',
     type: 'spell',
     color: 'blue',
     cost: 2,
-    text: 'Draw a card and freeze an enemy creature.',
+    text: 'Give a creature +2/+0 and shimmer (unblockable) until end of turn.',
     effects: [
-      { type: 'draw', amount: 1 },
-      { type: 'freeze', target: 'enemy-creature' },
+      { type: 'temporaryBuff', target: 'creature', attack: 2, toughness: 0 },
+      { type: 'grantShimmer', duration: 'turn' },
     ],
   },
   {
@@ -47,8 +47,11 @@ export const blueSpells = [
     type: 'spell',
     color: 'blue',
     cost: 3,
-    text: 'Freeze an enemy creature for one turn.',
-    effects: [{ type: 'freeze', target: 'enemy-creature' }],
+    text: 'Freeze an enemy creature and draw a card.',
+    effects: [
+      { type: 'freeze', target: 'enemy-creature' },
+      { type: 'draw', amount: 1 },
+    ],
   },
   {
     id: 'blue_spell_6',
@@ -65,7 +68,7 @@ export const blueSpells = [
     type: 'spell',
     color: 'blue',
     cost: 4,
-    text: 'Create two 2/2 Illusion tokens.',
+    text: 'Create two 2/2 Illusion tokens with shimmer.',
     effects: [
       {
         type: 'createMultipleTokens',
