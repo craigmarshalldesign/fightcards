@@ -1,6 +1,7 @@
 import { getCreatureStats, getCounterTotals, hasShimmer } from '../../../game/creatures.js';
 import { canPlayCard } from '../../../game/core/index.js';
 import { escapeHtml, formatText, sanitizeClass, getPassivePreviewInfo } from './shared.js';
+import { getLocalSeatIndex } from '../../../multiplayer/runtime.js';
 
 export function getCardColorClass(card) {
   return `card-color-${card?.color ?? 'neutral'}`;
@@ -69,7 +70,9 @@ function formatCounterValue(value) {
 }
 
 export function renderCard(card, isHand, game) {
-  const playable = isHand && !game?.pendingAction && canPlayCard(card, 0, game);
+  // CRITICAL: Use the local player's index, not hardcoded to 0
+  const localSeatIndex = getLocalSeatIndex();
+  const playable = isHand && !game?.pendingAction && canPlayCard(card, localSeatIndex, game);
   const classes = ['card', card.type === 'creature' ? 'creature-card' : 'spell-card', getCardColorClass(card)];
   if (playable) classes.push('playable');
   const pending = game?.pendingAction;

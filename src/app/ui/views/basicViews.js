@@ -230,8 +230,8 @@ export function renderGameOver() {
           </table>
         </div>
         <div class="hero-actions">
-          <button class="primary large" data-action="restart">Play Again</button>
-          <button class="ghost large" data-action="back-menu-from-game-over">Main Menu</button>
+          ${state.multiplayer?.currentMatchId ? '' : '<button class="primary large" data-action="restart">Play Again</button>'}
+          <button class="${state.multiplayer?.currentMatchId ? 'primary' : 'ghost'} large" data-action="back-menu-from-game-over">Main Menu</button>
         </div>
       </div>
     </div>

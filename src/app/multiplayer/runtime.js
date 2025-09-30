@@ -1,7 +1,7 @@
 import { state, requestRender, db } from '../state.js';
 import { buildDeck, CARD_LIBRARY } from '../../game/cards/index.js';
 import { createPlayer, drawCards, initializeCreature, spendMana, removeFromHand, sortHand } from '../game/core/players.js';
-import { createInitialStats } from '../game/core/stats.js';
+import { createInitialStats, recordTurnStart, recordCardPlay, recordCreatureLoss } from '../game/core/stats.js';
 import { cloneGameStateForNetwork, checkForWinner } from '../game/core/runtime.js';
 import {
   startGame,
@@ -433,6 +433,9 @@ function applyMatchEvent(game, event) {
         state.multiplayer.match.phase = payload.phase || 'main1';
       }
       
+      // CRITICAL: Record turn start for stats tracking
+      recordTurnStart(payload.activePlayer);
+      
       // CRITICAL: Clean up end-of-turn effects for ALL creatures (both players)
       game.players.forEach((p) => {
         p.battlefield.forEach((creature) => {
@@ -530,6 +533,9 @@ function applyMatchEvent(game, event) {
           initializeCreature(fullToken);
           tokenController.battlefield.push(fullToken);
           addLog([playerSegment(tokenController), textSegment(' creates '), cardSegment(fullToken), textSegment('.')]);
+          
+          // CRITICAL: Record token creation for stats tracking
+          recordCardPlay(payload.controller, 'creature');
         }
       }
       break;
@@ -548,6 +554,9 @@ function applyMatchEvent(game, event) {
         if (index >= 0) {
           destroyPlayer.battlefield.splice(index, 1);
         }
+        
+        // CRITICAL: Record creature loss for stats tracking
+        recordCreatureLoss(payload.controller);
         
         // Reset creature state
         creatureToDestroy.damageMarked = 0;
@@ -809,6 +818,9 @@ function handleCardPlayed(game, payload) {
     initializeCreature(fullCard);
     player.battlefield.push(fullCard);
     addLog([playerSegment(player), textSegment(' summons '), cardSegment(fullCard), textSegment('.')]);
+    
+    // CRITICAL: Record creature summon for stats tracking (for creatures played directly without targeting)
+    recordCardPlay(payload.controller, 'creature');
   } else if (payload.zone === 'graveyard') {
     player.graveyard.push(fullCard);
     addLog([playerSegment(player), textSegment(' resolves '), cardSegment(fullCard), textSegment('.')]);
@@ -946,8 +958,8 @@ function finalizePendingFromEvent(game, payload) {
     if (player) {
       const fullCard = cloneCardForEvent(payload);
       if (fullCard) {
-        // CRITICAL: Remove from hand during event replay so both players see updated hand count
-        ensureCardRemovedFromHand(player, fullCard.instanceId, payload.controller);
+        // NOTE: Card was already removed from hand in PENDING_CREATED event
+        // Do NOT remove it again here or hand count will be wrong
         initializeCreature(fullCard);
         player.battlefield.push(fullCard);
         addLog([
@@ -956,13 +968,16 @@ function finalizePendingFromEvent(game, payload) {
           cardSegment(fullCard),
           textSegment('.'),
         ]);
+        
+        // CRITICAL: Record creature summon for stats tracking
+        recordCardPlay(payload.controller, 'creature');
       }
     }
   } else if (payload.kind === 'spell' && pending.card) {
     // Handle spell casting
     if (player) {
-      // CRITICAL: Remove from hand during event replay so both players see updated hand count
-      ensureCardRemovedFromHand(player, pending.card.instanceId, payload.controller);
+      // NOTE: Card was already removed from hand in PENDING_CREATED event
+      // Do NOT remove it again here or hand count will be wrong
       
       // Build target segments for log
       const targetSegments = [];
@@ -1004,6 +1019,9 @@ function finalizePendingFromEvent(game, payload) {
       
       // Add to graveyard
       player.graveyard.push(pending.card);
+      
+      // CRITICAL: Record spell cast for stats tracking
+      recordCardPlay(payload.controller, 'spell');
     }
   } else if (payload.kind === 'ability' && pending.card) {
     // Log ability activation for the opponent

@@ -16,6 +16,7 @@ const VISIBLE_LOBBY_STATUSES = ['open', 'ready', 'starting', 'playing'];
 
 let lastLobbyCleanupCheck = 0;
 let activeLobbyExpiryTimer = null;
+let searchDebounceTimer = null;
 
 function ensureString(value) {
   return typeof value === 'string' ? value : '';
@@ -421,6 +422,13 @@ async function returnToModeSelectFromLobbies() {
   state.multiplayer.lobbyList.loading = false;
   state.multiplayer.lobbyList.error = null;
   state.multiplayer.lobbyList.searchTerm = '';
+  
+  // Clear any pending search debounce
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
+  
   state.screen = 'mode-select';
   requestRender();
 }
@@ -442,6 +450,11 @@ export function attachMultiplayerEventHandlers(root) {
 
     if (action === 'clear-search' && state.screen === 'multiplayer-lobbies') {
       event.preventDefault();
+      // Clear any pending search debounce
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = null;
+      }
       state.multiplayer.lobbyList.searchTerm = '';
       // Refresh subscription when clearing search
       if (state.multiplayer.lobbySubscription) {
@@ -558,8 +571,20 @@ export function attachMultiplayerEventHandlers(root) {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
+      // Update the search term immediately (for UI feedback)
       state.multiplayer.lobbyList.searchTerm = target.value ?? '';
-      requestRender();
+      
+      // Clear any existing debounce timer
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+      }
+      
+      // Debounce the actual search/refresh - wait 400ms after user stops typing
+      searchDebounceTimer = setTimeout(() => {
+        if (state.multiplayer.lobbySubscription) {
+          refreshLobbySubscription();
+        }
+      }, 400);
     }
   };
 
@@ -567,7 +592,11 @@ export function attachMultiplayerEventHandlers(root) {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
-      // Refresh subscription when search term changes
+      // The input handler already handles debouncing, so we don't need to do anything here
+      // This event fires after input loses focus, so we'll just ensure the search is refreshed
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+      }
       if (state.multiplayer.lobbySubscription) {
         refreshLobbySubscription();
       }
@@ -580,7 +609,11 @@ export function attachMultiplayerEventHandlers(root) {
     if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
       if (event.key === 'Enter') {
         event.preventDefault();
-        // Refresh subscription when Enter is pressed
+        // Clear debounce and search immediately when Enter is pressed
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = null;
+        }
         if (state.multiplayer.lobbySubscription) {
           refreshLobbySubscription();
         }

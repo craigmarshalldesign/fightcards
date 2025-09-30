@@ -15,6 +15,7 @@ import {
 import { addLog, cardSegment, healSegment, playerSegment, textSegment } from '../log.js';
 import { state } from '../../state.js';
 import { drawCards, sortHand } from './players.js';
+import { recordCardPlay } from './stats.js';
 import {
   isMultiplayerMatchActive,
   enqueueMatchEvent,
@@ -121,27 +122,38 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     }
     case 'createToken': {
       const token = instantiateToken(effect.token, controller.color);
-      // CRITICAL: In multiplayer, only emit event - don't add to battlefield locally
-      // The event replay will handle token creation for both players
-      if (!isMultiplayerMatchActive()) {
-        controller.battlefield.push(token);
-        addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
-      } else {
-        // In multiplayer, just emit the event
-        enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.TOKEN_CREATED, {
-          controller: controllerIndex,
-          card: cardToEventPayload(token),
-          zone: 'battlefield',
-          token: true,
-        });
+      // CRITICAL: For multiplayer, ensure token has a deterministic instanceId
+      // so both clients can reference the same token when targeting it
+      if (isMultiplayerMatchActive() && sourceCard) {
+        // Use source card's instanceId for deterministic token ID (same on all clients)
+        token.id = `${sourceCard.instanceId}-token`;
+        token.instanceId = `${sourceCard.instanceId}-token`;
       }
+      // CRITICAL: Always create token directly on battlefield during effect resolution
+      // This works for both single-player and multiplayer (during PENDING_RESOLVED replay)
+      // because resolveEffects() is called after the PENDING_RESOLVED event is replayed
+      controller.battlefield.push(token);
+      addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
+      // Track token creation for stats
+      recordCardPlay(controllerIndex, 'creature');
       break;
     }
     case 'createMultipleTokens': {
       for (let i = 0; i < effect.count; i += 1) {
         const token = instantiateToken(effect.token, controller.color);
+        // CRITICAL: For multiplayer, ensure token has a deterministic instanceId
+        // so both clients can reference the same token when targeting it
+        if (isMultiplayerMatchActive() && sourceCard) {
+          // Use source card's instanceId + token index for deterministic token ID (same on all clients)
+          token.id = `${sourceCard.instanceId}-token${i}`;
+          token.instanceId = `${sourceCard.instanceId}-token${i}`;
+        }
+        // CRITICAL: Always create token directly on battlefield during effect resolution
+        // This works for both single-player and multiplayer (during PENDING_RESOLVED replay)
         controller.battlefield.push(token);
         addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
+        // Track each token creation for stats
+        recordCardPlay(controllerIndex, 'creature');
       }
       break;
     }

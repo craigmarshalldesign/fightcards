@@ -269,6 +269,9 @@ function renderPlayerBoard(player, game, isOpponent) {
 
 function renderCreature(creature, controllerIndex, game) {
   const stats = getCreatureStats(creature, controllerIndex, game);
+  // CRITICAL: Determine if this is the local player's creature for ability buttons
+  const localSeatIndex = getLocalSeatIndex();
+  const isLocalCreature = controllerIndex === localSeatIndex;
   const classes = ['card', 'creature-card', getCardColorClass(creature)];
   if (creature.summoningSickness) classes.push('summoning');
   if (creature.frozenTurns) classes.push('frozen');
@@ -321,7 +324,7 @@ function renderCreature(creature, controllerIndex, game) {
   const abilityButtons = [];
   if (creature.activated) {
     const canActivate =
-      controllerIndex === 0 &&
+      isLocalCreature &&
       !creature.activatedThisTurn &&
       !(creature.frozenTurns > 0) &&
       (!game.pendingAction ||
@@ -349,7 +352,7 @@ function renderCreature(creature, controllerIndex, game) {
   const damageChip = damage > 0 ? `<span class="damage-chip">-${damage}</span>` : '';
   const pendingAction = game.pendingAction;
   const showAbilityActions =
-    controllerIndex === 0 &&
+    isLocalCreature &&
     pendingAction &&
     pendingAction.card?.instanceId === creature.instanceId &&
     (pendingAction.type === 'ability' || pendingAction.type === 'trigger');
