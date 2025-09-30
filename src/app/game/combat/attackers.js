@@ -1,5 +1,5 @@
 import { state, requestRender } from '../../state.js';
-import { addLog, cardSegment, textSegment } from '../log.js';
+import { addLog, cardSegment, textSegment, playerSegment } from '../log.js';
 import { buildInitialAttackers, isEligibleAttacker } from './helpers.js';
 import { skipCombat } from './resolution.js';
 import { startTriggerStage } from './triggers.js';
@@ -17,8 +17,7 @@ export function startCombatStage() {
   const eligibleAttackers = currentPlayer.battlefield.filter(isEligibleAttacker);
 
   game.combat = {
-    attackers:
-      currentPlayerIndex === 0 ? buildInitialAttackers(eligibleAttackers, 0) : [],
+    attackers: buildInitialAttackers(eligibleAttackers, currentPlayerIndex),
     stage: 'choose',
     pendingTriggers: [],
     activeTrigger: null,
@@ -27,13 +26,17 @@ export function startCombatStage() {
   };
   game.blocking = null;
 
-  addLog('Combat begins.');
+  // In multiplayer, logs will be added during event replay
+  // In single player, add them locally
+  if (!isMultiplayerMatchActive()) {
+    addLog('Combat begins.');
 
-  if (currentPlayerIndex === 0) {
-    if (eligibleAttackers.length > 0) {
-      addLog(`${eligibleAttackers.length} creature(s) ready to attack.`);
-    } else {
-      addLog('No creatures available to attack.');
+    if (currentPlayerIndex === 0) {
+      if (eligibleAttackers.length > 0) {
+        addLog(`${eligibleAttackers.length} creature(s) ready to attack.`);
+      } else {
+        addLog('No creatures available to attack.');
+      }
     }
   }
 
@@ -65,7 +68,8 @@ export function toggleAttacker(creature) {
   if (existing) {
     game.combat.attackers = game.combat.attackers.filter((atk) => atk.creature.instanceId !== creature.instanceId);
   } else {
-    game.combat.attackers.push({ creature, controller: 0 });
+    const currentPlayerIndex = game.currentPlayer ?? 0;
+    game.combat.attackers.push({ creature, controller: currentPlayerIndex });
   }
   if (isMultiplayerMatchActive()) {
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.ATTACKER_TOGGLED, {
@@ -88,8 +92,10 @@ export function confirmAttackers() {
     requestRender();
     return;
   }
-  addLog(`Attacking with ${game.combat.attackers.length} creature(s).`);
-  startTriggerStage();
+  
+  // CRITICAL: In multiplayer, ONLY emit event - don't execute locally
+  // Events are replayed for BOTH players (including the emitter)
+  // Executing locally would cause double-execution
   if (isMultiplayerMatchActive()) {
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.ATTACKERS_CONFIRMED, {
       attackers: game.combat.attackers.map((attacker) => ({
@@ -97,5 +103,14 @@ export function confirmAttackers() {
         controller: attacker.controller,
       })),
     });
+    return;
   }
+  
+  // Single player: execute immediately
+  const attackingPlayer = game.players[game.currentPlayer];
+  addLog([
+    playerSegment(attackingPlayer),
+    textSegment(` attacks with ${game.combat.attackers.length} creature(s).`)
+  ]);
+  startTriggerStage();
 }

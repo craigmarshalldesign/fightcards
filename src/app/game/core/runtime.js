@@ -56,12 +56,17 @@ function cloneCardFull(card) {
 }
 
 export function continueAIIfNeeded() {
-  if (state.game?.currentPlayer === 1) {
+  const game = state.game;
+  if (!game) return;
+  
+  // Only run AI if the current player is actually an AI player
+  const currentPlayer = game.players[game.currentPlayer];
+  if (currentPlayer?.isAI) {
     runAI();
   }
 }
 
-export function checkForWinner() {
+export async function checkForWinner() {
   const game = state.game;
   if (!game || game.winner != null) return;
   if (game.players[0].life <= 0) {
@@ -73,5 +78,7 @@ export function checkForWinner() {
   }
   if (game.winner != null) {
     requestRender();
+    // Don't auto-delete match data - let user view it as long as they want
+    // Cleanup will happen when they leave the game-over screen or close the page
   }
 }

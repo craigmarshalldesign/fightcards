@@ -7,18 +7,21 @@ import { renderGameControls } from './controls.js';
 import { renderPhaseIndicator } from './phaseIndicator.js';
 import { getLocalSeatIndex } from '../../../multiplayer/runtime.js';
 import { renderHandArea } from './hand.js';
-import { renderCardPreviewModal } from './modals.js';
+import { renderCardPreviewModal, renderEndGameModal } from './modals.js';
 
 export function renderGame() {
   const { game } = state;
   if (!game) return '';
 
-  const player = game.players[0];
-  const opponent = game.players[1];
+  // CRITICAL: Use local seat to determine which player is "you" vs "opponent"
+  const localSeatIndex = getLocalSeatIndex();
+  const player = game.players[localSeatIndex]; // Your cards/view
+  const opponentIndex = localSeatIndex === 0 ? 1 : 0;
+  const opponent = game.players[opponentIndex]; // Opponent's cards/view
+  
   const battleLogEntries = getLogEntries(game, 'battle');
   const spellLogEntries = getLogEntries(game, 'spell');
   const blocking = game.blocking;
-  const localSeatIndex = getLocalSeatIndex();
   const defendingIndex = game.currentPlayer === 0 ? 1 : 0;
   const awaitingDefender = Boolean(blocking && blocking.awaitingDefender);
   const shouldShowBlocking = awaitingDefender && localSeatIndex === defendingIndex;
@@ -30,7 +33,8 @@ export function renderGame() {
   );
   const canDeclareBlockers = Boolean(localSeatIndex === defendingIndex);
   const isLocalTurn = localSeatIndex === game.currentPlayer;
-  const showPhaseControls = isLocalTurn && !game.combat;
+  // CRITICAL: Only hide phase controls when actually in combat phase, not when combat object exists
+  const showPhaseControls = isLocalTurn && game.phase !== 'combat';
   const shouldShowControlShell = showPhaseControls || shouldShowBlocking || showDeclareAttackerActions || showAttackerSummary;
 
   return `
@@ -55,6 +59,7 @@ export function renderGame() {
       ${renderHandArea(player, game)}
       ${renderCardPreviewModal(game)}
       ${renderGraveyardModal(game)}
+      ${renderEndGameModal()}
     </div>
   `;
 }

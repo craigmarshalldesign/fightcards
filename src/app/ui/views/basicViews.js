@@ -231,7 +231,7 @@ export function renderGameOver() {
         </div>
         <div class="hero-actions">
           <button class="primary large" data-action="restart">Play Again</button>
-          <button class="ghost large" data-action="back-menu">Main Menu</button>
+          <button class="ghost large" data-action="back-menu-from-game-over">Main Menu</button>
         </div>
       </div>
     </div>

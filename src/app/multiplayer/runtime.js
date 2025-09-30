@@ -1,17 +1,18 @@
 import { state, requestRender, db } from '../state.js';
 import { buildDeck, CARD_LIBRARY } from '../../game/cards/index.js';
-import { createPlayer, drawCards } from '../game/core/players.js';
+import { createPlayer, drawCards, initializeCreature, spendMana } from '../game/core/players.js';
 import { createInitialStats } from '../game/core/stats.js';
-import { cloneGameStateForNetwork } from '../game/core/runtime.js';
+import { cloneGameStateForNetwork, checkForWinner } from '../game/core/runtime.js';
 import {
   startGame,
   beginTurn,
   playCreature,
   prepareSpell,
   confirmPendingAction,
+  prepareBlocks,
 } from '../game/core/flow.js';
-import { addLog, cardSegment, playerSegment, textSegment } from '../game/log.js';
-import { dealDamageToPlayer } from '../game/creatures.js';
+import { addLog, cardSegment, playerSegment, textSegment, damageSegment } from '../game/log.js';
+import { dealDamageToPlayer, dealDamageToCreature, checkForDeadCreatures, getCreatureStats } from '../game/creatures.js';
 import { createCardInstance } from '../../game/cards/index.js';
 import { resolveEffects } from '../game/core/effects.js';
 import { cleanupPending } from '../game/core/pending.js';
@@ -20,6 +21,7 @@ import {
   MULTIPLAYER_RULE_PARAMS,
   applyMultiplayerRuleParams,
 } from './rules.js';
+import { startTriggerStage } from '../game/combat/triggers.js';
 
 const EVENT_TYPES = {
   MATCH_STARTED: 'match-started',
@@ -32,6 +34,7 @@ const EVENT_TYPES = {
   PENDING_CREATED: 'pending-created',
   PENDING_UPDATED: 'pending-updated',
   PENDING_RESOLVED: 'pending-resolved',
+  PENDING_CANCELLED: 'pending-cancelled',
   EFFECT_RESOLVED: 'effect-resolved',
   ATTACKER_TOGGLED: 'attacker-toggled',
   ATTACKERS_CONFIRMED: 'attackers-confirmed',
@@ -43,6 +46,7 @@ const EVENT_TYPES = {
   LIFE_CHANGED: 'life-changed',
   DRAW_CARD: 'draw-card',
   LOG: 'log',
+  GAME_ENDED: 'game-ended',
 };
 
 export const MULTIPLAYER_EVENT_TYPES = EVENT_TYPES;
@@ -101,8 +105,24 @@ export function updateMultiplayerMatch(partial) {
   requestRender();
 }
 
+/**
+ * Enqueues a match event to the database for multiplayer synchronization.
+ * 
+ * HOW MULTIPLAYER WORKS:
+ * - Each player action creates an "event" stored in the database
+ * - Events have a sequence number to maintain order
+ * - Both players subscribe to the match and replay events to stay in sync
+ * - Only the active player can create new events (except for targeting/blocking)
+ * 
+ * IMPORTANT: Do not call this while replaying events (state.multiplayer.replayingEvents === true)
+ * This prevents infinite loops where replaying an event creates a new event, which gets replayed, etc.
+ */
 export async function enqueueMatchEvent(type, payload) {
   if (!state.multiplayer.match) return;
+  // CRITICAL: Do not create new events while replaying existing events
+  if (state.multiplayer.replayingEvents) {
+    return;
+  }
   const match = state.multiplayer.match;
   const nextSequence = match.nextSequence ?? 1;
   try {
@@ -195,6 +215,29 @@ export function clearMatch() {
   state.multiplayer.lastSequenceApplied = 0;
 }
 
+export async function deleteMatchData(matchId) {
+  if (!matchId) return false;
+  
+  try {
+    // Delete all match events first
+    const eventsToDelete = state.multiplayer.matchEvents
+      .filter((event) => event.matchId === matchId)
+      .map((event) => db.tx.matchEvents[event.id].delete());
+    
+    // Then delete the match itself
+    const matchDelete = db.tx.matches[matchId].delete();
+    
+    const ops = [...eventsToDelete, matchDelete];
+    await db.transact(ops.map((chunk) => applyMultiplayerRuleParams(chunk)).filter(Boolean));
+    
+    console.log(`Cleaned up match ${matchId} and ${eventsToDelete.length} events`);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete match data', matchId, error);
+    return false;
+  }
+}
+
 export function getLocalSeat() {
   return state.multiplayer.localSeat;
 }
@@ -263,7 +306,8 @@ function applyPendingEvents() {
 }
 
 function ensureGameInitialized() {
-  if (state.game && state.screen === 'game') return;
+  // Don't reinitialize if game is already running or if we're on the game-over screen
+  if (state.game && (state.screen === 'game' || state.screen === 'game-over')) return;
   if (state.multiplayer.match) {
     initializeMultiplayerGame();
     return;
@@ -319,21 +363,102 @@ function applyMatchEvent(game, event) {
   const { type, payload } = event;
   switch (type) {
     case EVENT_TYPES.MATCH_STARTED:
+      // During replay, just set the state - don't call beginTurn() as it creates new events
       game.turn = payload.turn;
       game.currentPlayer = payload.activePlayer;
       game.phase = payload.phase;
       game.dice = payload.dice;
-      drawCards(game.players[0], 5);
-      drawCards(game.players[1], 5);
-      beginTurn(game.currentPlayer);
+      
+      // Only draw cards if they haven't been drawn yet
+      if (game.players[0].hand.length === 0) {
+        drawCards(game.players[0], 5);
+      }
+      if (game.players[1].hand.length === 0) {
+        drawCards(game.players[1], 5);
+      }
+      
+      // Give the starting player their first mana
+      const startingPlayer = game.players[payload.activePlayer];
+      if (startingPlayer) {
+        startingPlayer.maxMana = 1;
+        startingPlayer.availableMana = 1;
+        addLog([playerSegment(startingPlayer), textSegment(` starts the game with ${startingPlayer.availableMana} mana.`)]);
+      }
       break;
     case EVENT_TYPES.TURN_STARTED:
       game.turn = payload.turn;
       game.currentPlayer = payload.activePlayer;
-      beginTurn(game.currentPlayer);
+      game.phase = payload.phase || 'main1';
+      
+      if (state.multiplayer.match) {
+        state.multiplayer.match.activePlayer = payload.activePlayer;
+        state.multiplayer.match.turn = payload.turn;
+        state.multiplayer.match.phase = payload.phase || 'main1';
+      }
+      
+      // Apply beginning of turn effects (mana, cards, creature resets)
+      const activePlayer = game.players[payload.activePlayer];
+      if (activePlayer) {
+        // Increment mana (max 10)
+        if (activePlayer.maxMana < 10) {
+          activePlayer.maxMana++;
+        }
+        activePlayer.availableMana = activePlayer.maxMana;
+        
+        // Draw a card
+        drawCards(activePlayer, 1);
+        
+        // Reset creature states
+        activePlayer.battlefield.forEach((creature) => {
+          creature.summoningSickness = false;
+          creature.activatedThisTurn = false;
+          if (creature.temporaryHaste) {
+            creature.temporaryHaste = false;
+          }
+        });
+        
+        addLog([playerSegment(activePlayer), textSegment(` starts their turn with ${activePlayer.availableMana} mana.`)]);
+      }
+      
+      // Reset combat/damage prevention and clear combat state
+      game.combat = null;
+      game.blocking = null;
+      game.preventCombatDamageFor = null;
+      game.preventDamageToAttackersFor = null;
       break;
     case EVENT_TYPES.PHASE_CHANGED:
       game.phase = payload.phase;
+      
+      // CRITICAL: Keep game state in sync with payload
+      if (payload.activePlayer !== undefined) {
+        game.currentPlayer = payload.activePlayer;
+      }
+      if (payload.turn !== undefined) {
+        game.turn = payload.turn;
+      }
+      
+      // Update match state for UI checks
+      if (state.multiplayer.match) {
+        state.multiplayer.match.phase = payload.phase;
+        if (payload.activePlayer !== undefined) {
+          state.multiplayer.match.activePlayer = payload.activePlayer;
+        }
+        if (payload.turn !== undefined) {
+          state.multiplayer.match.turn = payload.turn;
+        }
+      }
+      
+      // Clean up combat state when moving to main2
+      if (payload.phase === 'main2') {
+        game.combat = null;
+        game.blocking = null;
+      }
+      
+      // Add log for phase transitions
+      // Note: 'combat' phase logs are handled by COMBAT_STARTED event
+      if (payload.phase === 'main2') {
+        addLog([textSegment('Entering second main phase.')]);
+      }
       break;
     case EVENT_TYPES.CARD_PLAYED:
       handleCardPlayed(game, payload);
@@ -342,7 +467,12 @@ function applyMatchEvent(game, event) {
       addLog([playerSegment(game.players[payload.controller]), textSegment(' creates token '), cardSegment(payload.card), textSegment('.')]);
       break;
     case EVENT_TYPES.CARD_LEFT_BATTLEFIELD:
+      addLog(createCardEventLog(type, payload));
+      break;
     case EVENT_TYPES.CREATURE_DESTROYED:
+      // CRITICAL: The actual creature destruction (remove from battlefield, add to graveyard)
+      // happens when both players call checkForDeadCreatures() or destroyCreature()
+      // This event is just for logging purposes
       addLog(createCardEventLog(type, payload));
       break;
     case EVENT_TYPES.PENDING_CREATED:
@@ -354,45 +484,159 @@ function applyMatchEvent(game, event) {
     case EVENT_TYPES.PENDING_RESOLVED:
       finalizePendingFromEvent(game, payload);
       break;
+    case EVENT_TYPES.PENDING_CANCELLED:
+      game.pendingAction = null;
+      addLog([textSegment('Action cancelled.')]);
+      break;
     case EVENT_TYPES.COMBAT_STARTED:
-      game.combat = { attackers: [], stage: 'choose' };
+      // CRITICAL: Build initial attackers array for the attacking player
+      const combatControllerIndex = payload.controller;
+      const combatController = game.players[combatControllerIndex];
+      const eligibleAttackers = combatController.battlefield.filter(c => 
+        c.type === 'creature' && !c.summoningSickness && !(c.frozenTurns > 0)
+      );
+      
+      game.combat = { 
+        attackers: eligibleAttackers.map(creature => ({ creature, controller: combatControllerIndex })),
+        stage: 'choose',
+        pendingTriggers: [],
+        activeTrigger: null,
+        resolvingTrigger: false,
+        triggerOptions: null,
+      };
+      
+      // Add combat start logs
+      addLog([textSegment('Combat begins.')]);
+      
+      if (eligibleAttackers.length > 0) {
+        addLog([textSegment(`${eligibleAttackers.length} creature(s) ready to attack.`)]);
+      } else {
+        addLog([textSegment('No creatures available to attack.')]);
+      }
       break;
     case EVENT_TYPES.ATTACKER_TOGGLED:
       toggleAttackerFromEvent(game, payload);
       break;
     case EVENT_TYPES.ATTACKERS_CONFIRMED:
       game.combat = game.combat || { attackers: [], stage: 'choose' };
-      game.combat.attackers = payload.attackers || [];
-      game.combat.stage = 'blockers';
-      break;
-    case EVENT_TYPES.PHASE_CHANGED:
-      if (payload.phase === 'main2') {
-        game.combat = null;
-        game.blocking = null;
-      }
+      // CRITICAL: Reconstruct full attacker entries from battlefield creatures
+      game.combat.attackers = (payload.attackers || []).map((attackerStub) => {
+        const fullCreature = game.players[attackerStub.controller].battlefield.find(
+          (c) => c.instanceId === attackerStub.creature.instanceId
+        );
+        return fullCreature ? { creature: fullCreature, controller: attackerStub.controller } : null;
+      }).filter(Boolean);
+      
+      // Log the attack
+      const attackingPlayer = game.players[game.currentPlayer];
+      addLog([
+        playerSegment(attackingPlayer),
+        textSegment(` attacks with ${game.combat.attackers.length} creature(s).`)
+      ]);
+      
+      // CRITICAL: Process attack triggers for both players
+      // This event is replayed for BOTH the attacker and defender
+      // startTriggerStage() will eventually call finalizeTriggerStage() which calls prepareBlocks()
+      startTriggerStage();
       break;
     case EVENT_TYPES.BLOCKING_STARTED:
-      game.blocking = { attackers: [...(game.combat?.attackers || [])], assignments: {}, selectedBlocker: null, awaitingDefender: true };
+      // CRITICAL: Call prepareBlocks to properly set up blocking state for both players
+      prepareBlocks();
       break;
     case EVENT_TYPES.BLOCKER_ASSIGNED:
       if (game.blocking) {
         game.blocking.assignments = game.blocking.assignments || {};
-        game.blocking.assignments[payload.attacker.instanceId] = payload.blocker;
+        // CRITICAL: Look up the full blocker creature from the battlefield
+        const defendingIndex = game.currentPlayer === 0 ? 1 : 0;
+        const fullBlocker = game.players[defendingIndex].battlefield.find(
+          (c) => c.instanceId === payload.blocker.instanceId
+        );
+        if (fullBlocker) {
+          game.blocking.assignments[payload.attacker.instanceId] = fullBlocker;
+        }
       }
       break;
     case EVENT_TYPES.COMBAT_RESOLVED:
-      addLog([textSegment('Combat resolves.')]);
+      // CRITICAL: Apply combat damage from the log on both clients
+      if (payload.log && Array.isArray(payload.log)) {
+        payload.log.forEach((entry) => {
+          // Look up full creature objects from the battlefield
+          const attackingPlayerIndex = entry.controller;
+          const defendingPlayerIndex = attackingPlayerIndex === 0 ? 1 : 0;
+          
+          const attackingPlayer = game.players[attackingPlayerIndex];
+          const defendingPlayer = game.players[defendingPlayerIndex];
+          
+          const attacker = attackingPlayer.battlefield.find(
+            (c) => c.instanceId === entry.attacker.instanceId
+          );
+          
+          if (entry.type === 'direct') {
+            // Unblocked attacker hits player
+            // Note: dealDamageToPlayer will log the damage, so no need to log here
+            dealDamageToPlayer(defendingPlayerIndex, entry.damage);
+          } else if (entry.type === 'combat') {
+            // Blocked combat
+            const blocker = defendingPlayer.battlefield.find(
+              (c) => c.instanceId === entry.blocker.instanceId
+            );
+            
+            if (attacker && blocker) {
+              if (entry.damageToBlocker > 0) {
+                addLog([
+                  cardSegment(attacker),
+                  textSegment(' deals '),
+                  damageSegment(entry.damageToBlocker),
+                  textSegment(' damage to '),
+                  cardSegment(blocker),
+                  textSegment('.'),
+                ]);
+              }
+              dealDamageToCreature(blocker, defendingPlayerIndex, entry.damageToBlocker);
+              
+              if (entry.damageToAttacker > 0) {
+                addLog([
+                  cardSegment(blocker),
+                  textSegment(' deals '),
+                  damageSegment(entry.damageToAttacker),
+                  textSegment(' damage to '),
+                  cardSegment(attacker),
+                  textSegment('.'),
+                ]);
+              }
+              dealDamageToCreature(attacker, attackingPlayerIndex, entry.damageToAttacker);
+            }
+          }
+        });
+        
+        // Check for and remove dead creatures
+        checkForDeadCreatures();
+      }
+      
+      // Clean up combat state
       game.combat = null;
       game.blocking = null;
       break;
     case EVENT_TYPES.LIFE_CHANGED:
       game.players[payload.controller].life = payload.life;
+      // Check if the game ended due to this life change
+      checkForWinner();
       break;
     case EVENT_TYPES.DRAW_CARD:
       addLog([playerSegment(game.players[payload.controller]), textSegment(' draws a card.')]);
       break;
     case EVENT_TYPES.LOG:
       addLog(payload.message, undefined, payload.category);
+      break;
+    case EVENT_TYPES.GAME_ENDED:
+      // Another player ended the game - return to menu
+      addLog([textSegment('The game has ended.')]);
+      // Use setTimeout to allow the log to render before transitioning
+      setTimeout(async () => {
+        await deleteMatchData(state.multiplayer.currentMatchId);
+        const { resetToMenu } = await import('../state.js');
+        resetToMenu();
+      }, 500);
       break;
     default:
       break;
@@ -402,7 +646,24 @@ function applyMatchEvent(game, event) {
 function handleCardPlayed(game, payload) {
   const player = getControllerPlayer(game, payload.controller);
   if (!player) return;
-  addLog([playerSegment(player), textSegment(' resolves '), cardSegment(payload.card), textSegment('.')]);
+  
+  // Reconstruct the full card from the card cache
+  const fullCard = cloneCardForEvent(payload);
+  if (!fullCard) {
+    console.error('Failed to clone card for CARD_PLAYED event', payload.card);
+    return;
+  }
+  
+  // Add the card to the appropriate zone
+  if (payload.zone === 'battlefield') {
+    // Initialize creature properties
+    initializeCreature(fullCard);
+    player.battlefield.push(fullCard);
+    addLog([playerSegment(player), textSegment(' summons '), cardSegment(fullCard), textSegment('.')]);
+  } else if (payload.zone === 'graveyard') {
+    player.graveyard.push(fullCard);
+    addLog([playerSegment(player), textSegment(' resolves '), cardSegment(fullCard), textSegment('.')]);
+  }
 }
 
 function toggleAttackerFromEvent(game, payload) {
@@ -411,23 +672,74 @@ function toggleAttackerFromEvent(game, payload) {
   }
   const exists = game.combat.attackers.some((entry) => entry.creature.instanceId === payload.creature.instanceId);
   if (payload.selected && !exists) {
-    game.combat.attackers.push({ creature: payload.creature, controller: game.currentPlayer });
+    // CRITICAL: Look up the full creature from the battlefield instead of using the stub
+    const controller = game.currentPlayer;
+    const fullCreature = game.players[controller].battlefield.find(
+      (c) => c.instanceId === payload.creature.instanceId
+    );
+    if (fullCreature) {
+      game.combat.attackers.push({ creature: fullCreature, controller });
+    }
   } else if (!payload.selected && exists) {
     game.combat.attackers = game.combat.attackers.filter((entry) => entry.creature.instanceId !== payload.creature.instanceId);
   }
 }
 
 function rebuildPendingFromEvent(game, payload) {
+  const player = getControllerPlayer(game, payload.controller);
+  let fullCard;
+  
+  // CRITICAL: For abilities and triggers, look up the creature from the battlefield
+  // For spells/summons, create a new instance from the card cache
+  if (payload.kind === 'ability' || payload.kind === 'trigger') {
+    // Find the creature on the battlefield
+    fullCard = player?.battlefield.find(c => c.instanceId === payload.card.instanceId);
+    if (!fullCard) {
+      console.error('Failed to find creature for ability/trigger event', payload.card);
+      return;
+    }
+  } else {
+    // Reconstruct the card from the card cache (for spells and summons)
+    fullCard = cloneCardForEvent(payload);
+    if (!fullCard) {
+      console.error('Failed to clone card for PENDING_CREATED event', payload.card);
+      return;
+    }
+    
+    // Remove from hand for spells and summons
+    if (player) {
+      const cardIndex = player.hand.findIndex(c => c.instanceId === payload.card.instanceId);
+      if (cardIndex !== -1) {
+        player.hand.splice(cardIndex, 1);
+      }
+    }
+  }
+  
   game.pendingAction = {
     type: payload.kind,
     controller: payload.controller,
-    card: payload.card,
+    card: fullCard,
     effects: payload.effects || [],
     requirements: payload.requirements || [],
     requirementIndex: payload.requirementIndex ?? 0,
     chosenTargets: payload.chosenTargets || {},
     awaitingConfirmation: payload.awaitingConfirmation ?? false,
+    selectedTargets: [],
+    cancellable: true,
+    removedFromHand: payload.kind !== 'ability' && payload.kind !== 'trigger',
   };
+  
+  // Log the action for the remote player
+  if (player) {
+    const actionText = payload.kind === 'ability' ? ' activates ' : ' prepares ';
+    const suffix = payload.kind === 'ability' ? `'s ${fullCard.activated?.name || 'ability'}` : '';
+    addLog([
+      playerSegment(player), 
+      textSegment(actionText), 
+      cardSegment(fullCard), 
+      textSegment(suffix + '.'),
+    ], undefined, payload.kind === 'spell' || payload.kind === 'ability' ? 'spell' : undefined);
+  }
 }
 
 function updatePendingFromEvent(game, payload) {
@@ -439,6 +751,10 @@ function updatePendingFromEvent(game, payload) {
   if (payload.chosenTargets) {
     game.pendingAction.chosenTargets = payload.chosenTargets;
   }
+  // CRITICAL: Update selectedTargets so opponent can see real-time targeting arrows
+  if (payload.selectedTargets !== undefined) {
+    game.pendingAction.selectedTargets = payload.selectedTargets;
+  }
   if (payload.awaitingConfirmation !== undefined) {
     game.pendingAction.awaitingConfirmation = payload.awaitingConfirmation;
   }
@@ -448,9 +764,145 @@ function finalizePendingFromEvent(game, payload) {
   if (!game.pendingAction) {
     rebuildPendingFromEvent(game, payload);
   }
-  game.pendingAction.chosenTargets = payload.chosenTargets;
-  resolveEffects(payload.effects || [], game.pendingAction);
-  cleanupPending(game.pendingAction);
+  
+  const pending = game.pendingAction;
+  
+  // CRITICAL: Reconstruct full creature targets from battlefield instead of using stubs
+  // The payload.chosenTargets contains creature stubs (just id/instanceId)
+  // We need to replace them with the actual creatures from the battlefield
+  const reconstructedTargets = {};
+  if (payload.chosenTargets) {
+    Object.keys(payload.chosenTargets).forEach((effectIndex) => {
+      const targets = payload.chosenTargets[effectIndex] || [];
+      reconstructedTargets[effectIndex] = targets.map((target) => {
+        if (target.type === 'player') {
+          return target; // Player targets don't need reconstruction
+        } else if (target.creature) {
+          // Look up the full creature from the battlefield
+          const targetPlayer = game.players[target.controller];
+          const fullCreature = targetPlayer.battlefield.find(
+            (c) => c.instanceId === target.creature.instanceId
+          );
+          if (fullCreature) {
+            return { ...target, creature: fullCreature };
+          }
+        }
+        return target;
+      });
+    });
+  }
+  pending.chosenTargets = reconstructedTargets;
+  
+  const player = getControllerPlayer(game, payload.controller);
+  
+  // If it's a summon, add the creature to the battlefield
+  if (payload.kind === 'summon' && payload.card) {
+    if (player) {
+      const fullCard = cloneCardForEvent(payload);
+      if (fullCard) {
+        initializeCreature(fullCard);
+        player.battlefield.push(fullCard);
+        addLog([
+          playerSegment(player),
+          textSegment(' summons '),
+          cardSegment(fullCard),
+          textSegment('.'),
+        ]);
+      }
+    }
+  } else if (payload.kind === 'spell' && pending.card) {
+    // Handle spell casting
+    if (player) {
+      // Build target segments for log
+      const targetSegments = [];
+      if (pending.chosenTargets) {
+        const effectIndexes = Object.keys(pending.chosenTargets)
+          .map((k) => Number.parseInt(k, 10))
+          .sort((a, b) => a - b);
+        for (const idx of effectIndexes) {
+          const targets = pending.chosenTargets[idx] || [];
+          if (!targets.length) continue;
+          const parts = [textSegment(' on ')];
+          targets.forEach((t, i) => {
+            if (i > 0) {
+              parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
+            }
+            if (t.type === 'player') {
+              const tgtPlayer = game.players[t.controller];
+              parts.push(playerSegment(tgtPlayer));
+            } else if (t.creature) {
+              parts.push(cardSegment(t.creature));
+            }
+          });
+          targetSegments.push(...parts);
+          break;
+        }
+      }
+      
+      // Log spell casting
+      addLog([
+        playerSegment(player),
+        textSegment(' casts '),
+        cardSegment(pending.card),
+        ...targetSegments,
+        textSegment('.'),
+      ], undefined, 'spell');
+      
+      // Spend mana
+      spendMana(player, pending.card.cost ?? 0);
+      
+      // Add to graveyard
+      player.graveyard.push(pending.card);
+    }
+  } else if (payload.kind === 'ability' && pending.card) {
+    // Log ability activation for the opponent
+    const targetSegments = [];
+    if (pending.chosenTargets) {
+      const effectIndexes = Object.keys(pending.chosenTargets)
+        .map((k) => Number.parseInt(k, 10))
+        .sort((a, b) => a - b);
+      for (const idx of effectIndexes) {
+        const targets = pending.chosenTargets[idx] || [];
+        if (!targets.length) continue;
+        const parts = [textSegment(' on ')];
+        targets.forEach((t, i) => {
+          if (i > 0) {
+            parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
+          }
+          if (t.type === 'player') {
+            const tgtPlayer = game.players[t.controller];
+            parts.push(playerSegment(tgtPlayer));
+          } else if (t.creature) {
+            parts.push(cardSegment(t.creature));
+          }
+        });
+        targetSegments.push(...parts);
+        break;
+      }
+    }
+    
+    if (player) {
+      addLog([
+        playerSegment(player),
+        textSegment(' activates '),
+        cardSegment(pending.card),
+        textSegment(`'s ${pending.card.activated?.name || 'ability'}`),
+        ...targetSegments,
+        textSegment('.'),
+      ]);
+      
+      // Mark the creature as having activated (for multiplayer opponent's side)
+      if (pending.card.activated) {
+        pending.card.activatedThisTurn = true;
+      }
+      
+      // Spend mana on opponent's side
+      spendMana(player, pending.card.activated?.cost ?? 0);
+    }
+  }
+  
+  resolveEffects(payload.effects || [], pending);
+  cleanupPending(pending);
   game.pendingAction = null;
 }
 

@@ -3,7 +3,7 @@ import { getCreatureStats } from '../../../game/creatures.js';
 import { renderBattlefieldSkin } from '../battlefield/index.js';
 import { renderStatusChips, getCardColorClass } from './cards.js';
 import { escapeHtml, sanitizeClass, getPassivePreviewInfo } from './shared.js';
-import { getLocalSeat } from '../../../multiplayer/runtime.js';
+import { getLocalSeat, getLocalSeatIndex } from '../../../multiplayer/runtime.js';
 
 export function renderBattlefieldSection({ player, opponent, game }) {
   const localSeat = getLocalSeat();
@@ -152,7 +152,10 @@ export function renderTargetLines(game) {
       let targetId = '';
       let controllerAttr = '';
       if (target.type === 'player') {
-        targetId = target.controller === 0 ? 'player-life-orb' : 'opponent-life-orb';
+        // In multiplayer, need to determine which orb based on local vs remote player
+        const localSeatIndex = getLocalSeatIndex();
+        const isTargetingLocalPlayer = target.controller === localSeatIndex;
+        targetId = isTargetingLocalPlayer ? 'player-life-orb' : 'opponent-life-orb';
         controllerAttr = ` data-target-controller="${target.controller}"`;
       } else if (target.creature?.instanceId) {
         targetId = target.creature.instanceId;
@@ -189,36 +192,33 @@ export function renderAttackLines(game) {
     return '';
   }
 
-  if (game.combat.stage === 'choose' && game.currentPlayer === 1) {
-    return '';
-  }
-
+  // CRITICAL: In multiplayer, show attack arrows during 'choose' stage for both players
   const visibleAttackers = game.combat.attackers.filter((atk) => atk.controller === game.currentPlayer);
   if (!visibleAttackers.length) {
     return '';
   }
 
+  // Determine which life orb to target based on local vs remote player perspective
+  const localSeatIndex = getLocalSeatIndex();
+  
   const lines = visibleAttackers
     .map((attacker) => {
       const attackerId = attacker.creature.instanceId;
       const attackerController = attacker.controller;
-      const defendingPlayer = attackerController === 0 ? 1 : 0;
+      const defendingPlayerIndex = attackerController === 0 ? 1 : 0;
       const assignedBlocker = game.blocking?.assignments?.[attackerId];
       const variant = assignedBlocker ? 'blocked' : 'unblocked';
-      const targetId = assignedBlocker
-        ? assignedBlocker.instanceId
-        : defendingPlayer === 0
-          ? 'player-life-orb'
-          : 'opponent-life-orb';
-      if (!assignedBlocker) {
-        if (game.currentPlayer === 1 && targetId === 'opponent-life-orb') {
-          return '';
-        }
-        if (game.currentPlayer === 0 && targetId === 'player-life-orb') {
-          return '';
-        }
+      
+      let targetId;
+      if (assignedBlocker) {
+        targetId = assignedBlocker.instanceId;
+      } else {
+        // Arrow should point to the defending player's life orb from local perspective
+        const isDefenderLocal = defendingPlayerIndex === localSeatIndex;
+        targetId = isDefenderLocal ? 'player-life-orb' : 'opponent-life-orb';
       }
-      const targetControllerAttr = assignedBlocker ? ` data-target-controller="${defendingPlayer}"` : '';
+      
+      const targetControllerAttr = assignedBlocker ? ` data-target-controller="${defendingPlayerIndex}"` : '';
       return `<line class="attack-line ${variant}" data-attacker="${attackerId}" data-attacker-controller="${attackerController}" data-target="${targetId}"${targetControllerAttr} x1="0" y1="0" x2="0" y2="0" />`;
     })
     .filter(Boolean)

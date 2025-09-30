@@ -122,7 +122,19 @@ export function selectTargetForPending(target) {
     return false;
   }
   pending.selectedTargets.push(target);
-  if (pending.selectedTargets.length >= (requirement.count ?? 1)) {
+  
+  // CRITICAL: In multiplayer, broadcast target selection so opponent can see the targeting arrow
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_UPDATED, {
+      controller: pending.controller,
+      requirementIndex: pending.requirementIndex,
+      selectedTargets: pending.selectedTargets,
+      chosenTargets: pending.chosenTargets,
+    });
+  }
+  
+  const isComplete = pending.selectedTargets.length >= (requirement.count ?? 1);
+  if (isComplete) {
     finalizeCurrentRequirement();
   } else {
     requestRender();
@@ -149,15 +161,23 @@ export function finalizeCurrentRequirement() {
   pending.chosenTargets[requirement.effectIndex] = pending.selectedTargets.map((target) => ({ ...target }));
   pending.selectedTargets = [];
   pending.requirementIndex += 1;
+  
+  const isComplete = pending.requirementIndex >= pending.requirements.length;
+  if (isComplete) {
+    pending.awaitingConfirmation = true;
+  }
+  
   if (isMultiplayerMatchActive()) {
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_UPDATED, {
       controller: pending.controller,
       requirementIndex: pending.requirementIndex,
       chosenTargets: pending.chosenTargets,
+      selectedTargets: [], // Clear on both sides
+      awaitingConfirmation: isComplete ? true : undefined,
     });
   }
-  if (pending.requirementIndex >= pending.requirements.length) {
-    pending.awaitingConfirmation = true;
+  
+  if (isComplete) {
     requestRender();
     if (pending.isAI) {
       scheduleAIPendingConfirmation(pending);
@@ -199,6 +219,14 @@ export function cancelPendingAction() {
   const { pendingAction } = game;
   const wasTrigger = pendingAction.type === 'trigger';
   const wasOptionalTrigger = wasTrigger && pendingAction.optional;
+  
+  // Sync to multiplayer before cleaning up
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CANCELLED, {
+      controller: pendingAction.controller,
+    });
+  }
+  
   if (pendingAction.type === 'summon' && pendingAction.card) {
     const player = game.players[pendingAction.controller];
     player.hand.push(pendingAction.card);
@@ -213,18 +241,21 @@ export function cancelPendingAction() {
   }
   cleanupPending(pendingAction);
   game.pendingAction = null;
-  if (pendingAction.type === 'spell') {
-    addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')], undefined, 'spell');
-  } else if (wasTrigger && pendingAction.card) {
-    if (wasOptionalTrigger) {
-      addLog([cardSegment(pendingAction.card), textSegment(' ability skipped.')]);
-    } else {
+  
+  if (!isMultiplayerMatchActive()) {
+    if (pendingAction.type === 'spell') {
+      addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')], undefined, 'spell');
+    } else if (wasTrigger && pendingAction.card) {
+      if (wasOptionalTrigger) {
+        addLog([cardSegment(pendingAction.card), textSegment(' ability skipped.')]);
+      } else {
+        addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
+      }
+    } else if (pendingAction.card) {
       addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
+    } else {
+      addLog([textSegment('Action cancelled.')]);
     }
-  } else if (pendingAction.card) {
-    addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
-  } else {
-    addLog([textSegment('Action cancelled.')]);
   }
   requestRender();
   if (wasTrigger) {
@@ -263,55 +294,55 @@ function resolveTriggeredPending(pending) {
 function executeSpell(pending) {
   const game = state.game;
   const player = game.players[pending.controller];
-  removeFromHand(player, pending.card.instanceId);
-  spendMana(player, pending.card.cost ?? 0);
+  
+  // CRITICAL: In multiplayer, don't execute effects locally - let the event replay handle it
+  // In single player, execute immediately
+  if (!isMultiplayerMatchActive()) {
+    removeFromHand(player, pending.card.instanceId);
+    spendMana(player, pending.card.cost ?? 0);
 
-  const buildTargetSegments = () => {
-    if (!pending?.chosenTargets) return [];
-    const effectIndexes = Object.keys(pending.chosenTargets)
-      .map((k) => Number.parseInt(k, 10))
-      .sort((a, b) => a - b);
-    for (const idx of effectIndexes) {
-      const targets = pending.chosenTargets[idx] || [];
-      if (!targets.length) continue;
-      const parts = [textSegment(' on ')];
-      targets.forEach((t, i) => {
-        if (i > 0) {
-          parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
-        }
-        if (t.type === 'player') {
-          const tgtPlayer = game.players[t.controller];
-          parts.push(playerSegment(tgtPlayer));
-        } else if (t.creature) {
-          parts.push(cardSegment(t.creature));
-        }
-      });
-      return parts;
-    }
-    return [];
-  };
+    const buildTargetSegments = () => {
+      if (!pending?.chosenTargets) return [];
+      const effectIndexes = Object.keys(pending.chosenTargets)
+        .map((k) => Number.parseInt(k, 10))
+        .sort((a, b) => a - b);
+      for (const idx of effectIndexes) {
+        const targets = pending.chosenTargets[idx] || [];
+        if (!targets.length) continue;
+        const parts = [textSegment(' on ')];
+        targets.forEach((t, i) => {
+          if (i > 0) {
+            parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
+          }
+          if (t.type === 'player') {
+            const tgtPlayer = game.players[t.controller];
+            parts.push(playerSegment(tgtPlayer));
+          } else if (t.creature) {
+            parts.push(cardSegment(t.creature));
+          }
+        });
+        return parts;
+      }
+      return [];
+    };
 
-  const targetSegments = buildTargetSegments();
-  addLog(
-    [
-      playerSegment(player),
-      textSegment(' casts '),
-      cardSegment(pending.card),
-      ...targetSegments,
-      textSegment('.'),
-    ],
-    undefined,
-    'spell',
-  );
-  recordCardPlay(pending.controller, 'spell');
-  resolveEffects(pending.effects, pending);
-  player.graveyard.push(pending.card);
-  cleanupPending(pending);
-  game.pendingAction = null;
-  requestRender();
-  checkForWinner();
-  continueAIIfNeeded();
-  if (isMultiplayerMatchActive()) {
+    const targetSegments = buildTargetSegments();
+    addLog(
+      [
+        playerSegment(player),
+        textSegment(' casts '),
+        cardSegment(pending.card),
+        ...targetSegments,
+        textSegment('.'),
+      ],
+      undefined,
+      'spell',
+    );
+    recordCardPlay(pending.controller, 'spell');
+    resolveEffects(pending.effects, pending);
+    player.graveyard.push(pending.card);
+  } else {
+    // In multiplayer, just emit the event - it will be applied via event replay
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
       controller: pending.controller,
       kind: 'spell',
@@ -320,26 +351,32 @@ function executeSpell(pending) {
       effects: pending.effects,
     });
   }
-}
-
-function resolvePendingSummon(pending) {
-  const game = state.game;
-  const player = game.players[pending.controller];
-  player.battlefield.push(pending.card);
-  addLog([
-    playerSegment(player),
-    textSegment(' summons '),
-    cardSegment(pending.card),
-    textSegment('.'),
-  ], undefined, 'spell');
-  recordCardPlay(pending.controller, 'creature');
-  resolveEffects(pending.effects, pending);
+  
   cleanupPending(pending);
   game.pendingAction = null;
   requestRender();
   checkForWinner();
   continueAIIfNeeded();
-  if (isMultiplayerMatchActive()) {
+}
+
+function resolvePendingSummon(pending) {
+  const game = state.game;
+  const player = game.players[pending.controller];
+  
+  // In multiplayer, don't add to battlefield here - let the PENDING_RESOLVED event handle it
+  // In single player, add it immediately
+  if (!isMultiplayerMatchActive()) {
+    player.battlefield.push(pending.card);
+    addLog([
+      playerSegment(player),
+      textSegment(' summons '),
+      cardSegment(pending.card),
+      textSegment('.'),
+    ], undefined, 'spell');
+    recordCardPlay(pending.controller, 'creature');
+    resolveEffects(pending.effects, pending);
+  } else {
+    // In multiplayer, create the event and it will be applied via event replay
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
       controller: pending.controller,
       kind: 'summon',
@@ -348,6 +385,12 @@ function resolvePendingSummon(pending) {
       effects: pending.effects,
     });
   }
+  
+  cleanupPending(pending);
+  game.pendingAction = null;
+  requestRender();
+  checkForWinner();
+  continueAIIfNeeded();
 }
 
 function executeAbility(pending) {
@@ -367,49 +410,49 @@ function executeAbility(pending) {
     return;
   }
 
-  spendMana(player, creature.activated.cost ?? 0);
-  creature.activatedThisTurn = true;
+  // CRITICAL: In multiplayer, don't execute locally - let the event replay handle it
+  // In single player, execute immediately
+  if (!isMultiplayerMatchActive()) {
+    spendMana(player, creature.activated.cost ?? 0);
+    creature.activatedThisTurn = true;
 
-  const targetSegments = [];
-  if (pending?.chosenTargets) {
-    const effectIndexes = Object.keys(pending.chosenTargets)
-      .map((k) => Number.parseInt(k, 10))
-      .sort((a, b) => a - b);
-    for (const idx of effectIndexes) {
-      const targets = pending.chosenTargets[idx] || [];
-      if (!targets.length) continue;
-      const parts = [textSegment(' on ')];
-      targets.forEach((t, i) => {
-        if (i > 0) {
-          parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
-        }
-        if (t.type === 'player') {
-          const tgtPlayer = game.players[t.controller];
-          parts.push(playerSegment(tgtPlayer));
-        } else if (t.creature) {
-          parts.push(cardSegment(t.creature));
-        }
-      });
-      targetSegments.push(...parts);
-      break;
+    const targetSegments = [];
+    if (pending?.chosenTargets) {
+      const effectIndexes = Object.keys(pending.chosenTargets)
+        .map((k) => Number.parseInt(k, 10))
+        .sort((a, b) => a - b);
+      for (const idx of effectIndexes) {
+        const targets = pending.chosenTargets[idx] || [];
+        if (!targets.length) continue;
+        const parts = [textSegment(' on ')];
+        targets.forEach((t, i) => {
+          if (i > 0) {
+            parts.push(textSegment(i === targets.length - 1 ? ' and ' : ', '));
+          }
+          if (t.type === 'player') {
+            const tgtPlayer = game.players[t.controller];
+            parts.push(playerSegment(tgtPlayer));
+          } else if (t.creature) {
+            parts.push(cardSegment(t.creature));
+          }
+        });
+        targetSegments.push(...parts);
+        break;
+      }
     }
-  }
 
-  addLog([
-    playerSegment(player),
-    textSegment(' activates '),
-    cardSegment(creature),
-    textSegment(`'s ${creature.activated.name || 'ability'}`),
-    ...targetSegments,
-    textSegment('.'),
-  ]);
+    addLog([
+      playerSegment(player),
+      textSegment(' activates '),
+      cardSegment(creature),
+      textSegment(`'s ${creature.activated.name || 'ability'}`),
+      ...targetSegments,
+      textSegment('.'),
+    ]);
 
-  cleanupPending(pending);
-  resolveEffects(pending.effects, pending);
-  game.pendingAction = null;
-  requestRender();
-  continueAIIfNeeded();
-  if (isMultiplayerMatchActive()) {
+    resolveEffects(pending.effects, pending);
+  } else {
+    // In multiplayer, just emit the event - it will be applied via event replay
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
       controller: pending.controller,
       kind: 'ability',
@@ -418,5 +461,10 @@ function executeAbility(pending) {
       effects: pending.effects,
     });
   }
+  
+  cleanupPending(pending);
+  game.pendingAction = null;
+  requestRender();
+  continueAIIfNeeded();
 }
 

@@ -20,6 +20,24 @@ export function renderCardPreviewModal(game) {
   `;
 }
 
+export function renderEndGameModal() {
+  if (!state.ui.showEndGameModal) return '';
+  
+  return `
+    <div class="card-preview-overlay" data-end-game-overlay="true">
+      <div class="end-game-modal" data-end-game-modal="true">
+        <h2>End Game?</h2>
+        <p>Are you sure you want to end this game?</p>
+        <p class="end-game-warning">This action cannot be undone.</p>
+        <div class="end-game-actions">
+          <button class="ghost" data-action="cancel-end-game">Cancel</button>
+          <button class="primary" data-action="confirm-end-game">End Game</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function findCardByInstance(game, instanceId) {
   if (!game || !instanceId) return null;
   const zones = ['hand', 'battlefield', 'graveyard', 'deck'];

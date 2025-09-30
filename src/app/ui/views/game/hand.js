@@ -38,6 +38,9 @@ export function renderHandArea(player, game) {
       <div class="hand-cards">
         ${sortedHand.map((card) => renderCard(card, true, game)).join('')}
       </div>
+      <div class="hand-footer">
+        <button class="ghost mini" data-action="show-end-game-modal">End Game</button>
+      </div>
     </section>
   `;
 }

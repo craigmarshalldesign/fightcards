@@ -48,4 +48,13 @@ export function setupApp(root) {
       console.info('Current game state:', describeGameState());
     }
   });
+
+  // Clean up match data when page is closed/refreshed
+  window.addEventListener('beforeunload', async () => {
+    if (state.multiplayer.currentMatchId) {
+      const { deleteMatchData } = await import('./multiplayer/runtime.js');
+      // Use sendBeacon for cleanup during page unload to ensure it completes
+      await deleteMatchData(state.multiplayer.currentMatchId);
+    }
+  });
 }

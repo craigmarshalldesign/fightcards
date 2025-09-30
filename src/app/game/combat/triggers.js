@@ -1,6 +1,7 @@
 import { state, requestRender } from '../../state.js';
 import { prepareBlocks } from './blockers.js';
 import { triggerAttackPassive } from './passives.js';
+import { isMultiplayerMatchActive, enqueueMatchEvent, MULTIPLAYER_EVENT_TYPES } from '../../multiplayer/runtime.js';
 
 const TRIGGER_ADVANCE_DELAY = 400;
 
@@ -14,7 +15,12 @@ function finalizeTriggerStage() {
   game.combat.resolvingTrigger = false;
   delete game.combat.triggerOptions;
   requestRender();
+  
+  // CRITICAL: Always call prepareBlocks directly
+  // In multiplayer, both players reach this point via ATTACKERS_CONFIRMED event replay
+  // We can't emit another event here because we're already inside event replay (replayingEvents === true)
   prepareBlocks();
+  
   const latestGame = state.game;
   if (options?.onComplete && !latestGame?.blocking) {
     options.onComplete();

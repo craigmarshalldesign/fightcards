@@ -127,6 +127,7 @@ export function playCreature(playerIndex, card) {
         kind: 'summon',
         card: cardToEventPayload(card),
         requirements,
+        effects: onEnterEffect ? [onEnterEffect] : [],
       });
     }
     requestRender();
@@ -136,12 +137,15 @@ export function playCreature(playerIndex, card) {
     return;
   }
 
-  player.battlefield.push(card);
-  logSummon(player, card);
-  // Count this as a creature played immediately when no selection is required
-  recordCardPlay(playerIndex, 'creature');
-  handlePassive(card, playerIndex, 'onEnter');
-  if (isMultiplayerMatchActive()) {
+  // In multiplayer, don't add to battlefield here - let the event handle it to avoid duplicates
+  // In single player, add it immediately
+  if (!isMultiplayerMatchActive()) {
+    player.battlefield.push(card);
+    logSummon(player, card);
+    recordCardPlay(playerIndex, 'creature');
+    handlePassive(card, playerIndex, 'onEnter');
+  } else {
+    // In multiplayer, just create the event - it will be applied via event replay
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_PLAYED, {
       controller: playerIndex,
       card: cardToEventPayload(card),
@@ -161,7 +165,10 @@ export function prepareSpell(playerIndex, card, options = {}) {
     }
     return req;
   });
+  
+  // Only remove from hand locally - the event replay will handle it for the remote player
   removeFromHand(player, card.instanceId);
+  
   const pending = {
     type: 'spell',
     controller: playerIndex,
@@ -179,8 +186,12 @@ export function prepareSpell(playerIndex, card, options = {}) {
   if (options.aiChosenTargets) {
     pending.aiChosenTargets = options.aiChosenTargets;
   }
+  
+  // Set local pending action
   game.pendingAction = pending;
   addLog([playerSegment(player), textSegment(' prepares '), cardSegment(card), textSegment('.')], undefined, 'spell');
+  
+  // Create the event for multiplayer sync
   if (isMultiplayerMatchActive()) {
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CREATED, {
       controller: playerIndex,
@@ -188,8 +199,10 @@ export function prepareSpell(playerIndex, card, options = {}) {
       card: cardToEventPayload(card),
       requirements,
       effects: pending.effects,
+      awaitingConfirmation: requirements.length === 0,
     });
   }
+  
   if (requirements.length === 0) {
     pending.awaitingConfirmation = true;
     requestRender();
@@ -379,6 +392,18 @@ export function activateCreatureAbility(creatureId) {
   });
 
   state.game.pendingAction = pending;
+  
+  // CRITICAL: Emit event in multiplayer so opponent can see the pending action and targeting arrows
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CREATED, {
+      controller: 0,
+      kind: 'ability',
+      card: cardToEventPayload(creature),
+      requirements,
+      effects: [effect],
+    });
+  }
+  
   requestRender();
 }
 
@@ -396,6 +421,18 @@ export function beginTurn(playerIndex) {
     });
   });
 
+  // In multiplayer, only create the event, don't apply effects locally
+  // The event replay will apply the effects for both players
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.TURN_STARTED, {
+      turn: game.turn,
+      activePlayer: playerIndex,
+      phase: 'main1',
+    });
+    return; // Don't apply effects locally - let the event do it
+  }
+  
+  // Single player: apply effects directly
   player.maxMana += 1;
   player.availableMana = player.maxMana;
   drawCards(player, 1);
@@ -410,13 +447,6 @@ export function beginTurn(playerIndex) {
   game.phase = 'main1';
   game.preventCombatDamageFor = null;
   game.preventDamageToAttackersFor = null;
-  if (isMultiplayerMatchActive()) {
-    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.TURN_STARTED, {
-      turn: game.turn,
-      activePlayer: playerIndex,
-      phase: game.phase,
-    });
-  }
 }
 
 export function advancePhase() {
@@ -431,6 +461,10 @@ export function advancePhase() {
     game.phase = 'combat';
     startCombatStage();
     if (isMultiplayerMatchActive()) {
+      // Update match state immediately for UI responsiveness
+      if (state.multiplayer.match) {
+        state.multiplayer.match.phase = game.phase;
+      }
       enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PHASE_CHANGED, {
         turn: game.turn,
         activePlayer: game.currentPlayer,
@@ -445,7 +479,19 @@ export function advancePhase() {
     endTurn();
     return;
   } else {
+    // Going to main2 phase
     game.phase = 'main2';
+    if (isMultiplayerMatchActive()) {
+      // Update match state immediately for UI responsiveness
+      if (state.multiplayer.match) {
+        state.multiplayer.match.phase = game.phase;
+      }
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PHASE_CHANGED, {
+        turn: game.turn,
+        activePlayer: game.currentPlayer,
+        phase: game.phase,
+      });
+    }
     requestRender();
   }
   continueAIIfNeeded();
@@ -453,6 +499,8 @@ export function advancePhase() {
 
 export function endTurn() {
   const game = state.game;
+  
+  // Clean up end-of-turn effects
   game.players.forEach((player) => {
     player.battlefield.forEach((creature) => {
       creature.damageMarked = 0;
@@ -462,6 +510,27 @@ export function endTurn() {
     });
   });
 
+  // In multiplayer, only create event - don't apply locally
+  if (isMultiplayerMatchActive()) {
+    const nextPlayer = game.currentPlayer === 0 ? 1 : 0;
+    const nextTurn = game.turn + 1;
+    
+    game.turn = nextTurn;
+    game.currentPlayer = nextPlayer;
+    game.phase = 'main1';
+    
+    if (state.multiplayer.match) {
+      state.multiplayer.match.turn = nextTurn;
+      state.multiplayer.match.activePlayer = nextPlayer;
+      state.multiplayer.match.phase = 'main1';
+    }
+    
+    beginTurn(nextPlayer);
+    requestRender();
+    return;
+  }
+  
+  // Single player: apply changes directly
   game.phase = 'main1';
   game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
   game.turn += 1;

@@ -33,6 +33,8 @@ export const initialState = {
     lastSequenceApplied: 0,
     replayingEvents: false,
     autoJoinInFlight: null,
+    lobbyCountdown: null,
+    lobbyCountdownInterval: null,
   },
   game: null,
   ui: {
@@ -40,6 +42,7 @@ export const initialState = {
     spellLogExpanded: false,
     previewCard: null,
     openGraveFor: null, // controller index (0 = player, 1 = opponent)
+    showEndGameModal: false,
   },
 };
 
@@ -67,7 +70,13 @@ export function resetEmailLogin() {
   state.emailLogin.message = null;
 }
 
-export function resetToMenu() {
+export async function resetToMenu() {
+  // Clean up match data if leaving from a multiplayer game
+  if (state.multiplayer.currentMatchId) {
+    const { deleteMatchData } = await import('./multiplayer/runtime.js');
+    await deleteMatchData(state.multiplayer.currentMatchId);
+  }
+  
   state.game = null;
   state.multiplayer.activeLobby = null;
   state.multiplayer.match = null;
@@ -94,8 +103,14 @@ export function resetToMenu() {
   state.multiplayer.lastSequenceApplied = 0;
   state.multiplayer.replayingEvents = false;
   state.multiplayer.autoJoinInFlight = null;
+  if (state.multiplayer.lobbyCountdownInterval) {
+    clearInterval(state.multiplayer.lobbyCountdownInterval);
+  }
+  state.multiplayer.lobbyCountdown = null;
+  state.multiplayer.lobbyCountdownInterval = null;
   state.screen = 'menu';
   state.ui.previewCard = null;
+  state.ui.showEndGameModal = false;
   requestRender();
 }
 

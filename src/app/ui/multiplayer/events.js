@@ -134,8 +134,16 @@ async function deleteUserStaleLobbies(userId) {
 }
 
 export function ensureMultiplayerScreenSubscriptions() {
-  if (state.screen === 'multiplayer-lobbies' && !state.multiplayer.lobbySubscription) {
-    refreshLobbySubscription();
+  if (state.screen === 'multiplayer-lobbies') {
+    // Only create subscription if it doesn't exist - don't recreate on every render
+    if (!state.multiplayer.lobbySubscription) {
+      refreshLobbySubscription();
+    }
+  } else {
+    // Clean up lobby subscription when not on lobbies screen
+    if (state.multiplayer.lobbySubscription && state.screen !== 'multiplayer-lobby-detail') {
+      cleanupLobbyListSubscription();
+    }
   }
   if (state.screen === 'multiplayer-lobby-detail' && state.multiplayer.activeLobby?.id) {
     ensureActiveLobbySubscription(state.multiplayer.activeLobby.id);
@@ -147,6 +155,7 @@ function clearActiveLobbyExpiryTimer() {
     clearTimeout(activeLobbyExpiryTimer);
     activeLobbyExpiryTimer = null;
   }
+  stopLobbyCountdown();
 }
 
 async function deleteLobby(lobbyId, { silent = false } = {}) {
@@ -200,6 +209,56 @@ function scheduleActiveLobbyExpiry(lobby) {
   activeLobbyExpiryTimer = setTimeout(() => {
     deleteLobby(lobby.id);
   }, remaining);
+  
+  // Start countdown timer for UI display
+  startLobbyCountdown(lobby);
+}
+
+function startLobbyCountdown(lobby) {
+  stopLobbyCountdown();
+  
+  if (!lobby?.id) return;
+  const userId = state.auth.user?.id;
+  // Only show countdown for host's lobby
+  if (!userId || lobby.hostUserId !== userId) return;
+  
+  const updateCountdown = () => {
+    if (!state.multiplayer.activeLobby || state.multiplayer.activeLobby.id !== lobby.id) {
+      stopLobbyCountdown();
+      return;
+    }
+    
+    const lastActivity = state.multiplayer.activeLobby.updatedAt || state.multiplayer.activeLobby.createdAt || 0;
+    if (!lastActivity) {
+      state.multiplayer.lobbyCountdown = null;
+      requestRender();
+      return;
+    }
+    
+    const elapsed = Date.now() - lastActivity;
+    const remaining = ACTIVE_LOBBY_TTL_MS - elapsed;
+    
+    if (remaining <= 0) {
+      state.multiplayer.lobbyCountdown = 0;
+      stopLobbyCountdown();
+      requestRender();
+      return;
+    }
+    
+    state.multiplayer.lobbyCountdown = Math.ceil(remaining / 1000);
+    requestRender();
+  };
+  
+  updateCountdown();
+  state.multiplayer.lobbyCountdownInterval = setInterval(updateCountdown, 1000);
+}
+
+function stopLobbyCountdown() {
+  if (state.multiplayer.lobbyCountdownInterval) {
+    clearInterval(state.multiplayer.lobbyCountdownInterval);
+    state.multiplayer.lobbyCountdownInterval = null;
+  }
+  state.multiplayer.lobbyCountdown = null;
 }
 
 function ensureActiveLobbySubscription(lobbyId) {
@@ -294,6 +353,7 @@ function cleanupActiveLobbySubscription() {
   state.multiplayer.activeLobbySubscriptionId = null;
   state.multiplayer.autoJoinInFlight = null;
   clearActiveLobbyExpiryTimer();
+  stopLobbyCountdown();
 }
 
 async function maybeAutoJoinSeat(lobby) {
@@ -383,14 +443,23 @@ export function attachMultiplayerEventHandlers(root) {
     if (action === 'clear-search' && state.screen === 'multiplayer-lobbies') {
       event.preventDefault();
       state.multiplayer.lobbyList.searchTerm = '';
-      refreshLobbySubscription();
-      requestRender();
+      // Refresh subscription when clearing search
+      if (state.multiplayer.lobbySubscription) {
+        refreshLobbySubscription();
+      } else {
+        requestRender();
+      }
       return;
     }
 
     if (action === 'refresh-lobbies' && state.screen === 'multiplayer-lobbies') {
       event.preventDefault();
-      refreshLobbySubscription();
+      // Only refresh if we're explicitly clicking the refresh button
+      if (state.multiplayer.lobbySubscription) {
+        refreshLobbySubscription();
+      } else {
+        ensureMultiplayerScreenSubscriptions();
+      }
       return;
     }
 
@@ -440,6 +509,8 @@ export function attachMultiplayerEventHandlers(root) {
       state.multiplayer.activeLobby = null;
       state.screen = 'multiplayer-lobbies';
       requestRender();
+      // Re-establish lobby list subscription when returning to lobbies screen
+      ensureMultiplayerScreenSubscriptions();
       return;
     }
 
@@ -496,7 +567,10 @@ export function attachMultiplayerEventHandlers(root) {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
-      refreshLobbySubscription();
+      // Refresh subscription when search term changes
+      if (state.multiplayer.lobbySubscription) {
+        refreshLobbySubscription();
+      }
     }
   };
 
@@ -506,7 +580,10 @@ export function attachMultiplayerEventHandlers(root) {
     if (target.getAttribute('data-action') === 'search-lobbies' && state.screen === 'multiplayer-lobbies') {
       if (event.key === 'Enter') {
         event.preventDefault();
-        refreshLobbySubscription();
+        // Refresh subscription when Enter is pressed
+        if (state.multiplayer.lobbySubscription) {
+          refreshLobbySubscription();
+        }
       }
     }
   };
@@ -600,10 +677,8 @@ async function chooseDeck(seat, color) {
 
   if (lobby[seatUserKey] !== userId) return;
 
-  const opponentColorKey = seat === 'host' ? lobby.guestColor : lobby.hostColor;
-  if (opponentColorKey === color) {
-    return;
-  }
+  // Allow players to choose the same color - no restriction
+  // Both players can now play red vs red, blue vs blue, etc.
 
   const updates = {
     updatedAt: Date.now(),
@@ -666,16 +741,23 @@ async function startMatch() {
   const matchId = generateId();
   const eventId = generateId();
   const now = Date.now();
-  const diceRolls = {
-    host: 1 + Math.floor(Math.random() * 6),
-    guest: 1 + Math.floor(Math.random() * 6),
-  };
-  let winner = null;
-  if (diceRolls.host !== diceRolls.guest) {
-    winner = diceRolls.host > diceRolls.guest ? 0 : 1;
-  }
+  
+  // Roll dice until there's no tie (like single-player rollForInitiative)
+  let diceRolls;
+  let winner;
+  do {
+    diceRolls = {
+      host: 1 + Math.floor(Math.random() * 6),
+      guest: 1 + Math.floor(Math.random() * 6),
+    };
+    if (diceRolls.host > diceRolls.guest) {
+      winner = 0;
+    } else if (diceRolls.guest > diceRolls.host) {
+      winner = 1;
+    }
+  } while (diceRolls.host === diceRolls.guest);
 
-  const activePlayer = winner ?? 0;
+  const activePlayer = winner;
   const match = {
     id: matchId,
     lobbyId: lobby.id,
@@ -812,24 +894,34 @@ function buildLobbyQuery() {
 }
 
 function refreshLobbySubscription() {
+  // Clean up existing subscription first
   cleanupLobbyListSubscription();
 
   const query = buildLobbyQuery();
+  
+  // Set loading state BEFORE creating subscription
+  state.multiplayer.lobbyList.loading = true;
+  state.multiplayer.lobbyList.error = null;
 
   let unsubscribe;
   try {
     unsubscribe = db.subscribeQuery(
       query,
       async (snapshot) => {
-      if (snapshot.error) {
-        state.multiplayer.lobbyList.loading = false;
-        state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
-        state.multiplayer.lobbyList.lobbies = [];
-        requestRender();
-        return;
-      }
+        // Don't render if we've already moved away from the lobbies screen
+        if (state.screen !== 'multiplayer-lobbies') {
+          return;
+        }
 
-      updateLobbyListFromSnapshot(snapshot.data?.lobbies ?? []);
+        if (snapshot.error) {
+          state.multiplayer.lobbyList.loading = false;
+          state.multiplayer.lobbyList.error = snapshot.error.message || 'Failed to load lobbies.';
+          state.multiplayer.lobbyList.lobbies = [];
+          requestRender();
+          return;
+        }
+
+        updateLobbyListFromSnapshot(snapshot.data?.lobbies ?? []);
       },
       { ruleParams: MULTIPLAYER_RULE_PARAMS },
     );
@@ -837,19 +929,20 @@ function refreshLobbySubscription() {
     console.error('Failed to subscribe to lobbies', error);
     state.multiplayer.lobbyList.loading = false;
     state.multiplayer.lobbyList.error = 'Failed to subscribe to lobbies. Please try again.';
+    state.multiplayer.lobbySubscription = null;
     requestRender();
     return;
   }
 
+  // Set subscription handle IMMEDIATELY to prevent re-creation
   if (typeof unsubscribe === 'function') {
     state.multiplayer.lobbySubscription = unsubscribe;
   } else {
     console.warn('Unexpected lobby subscription handle; falling back to no-op close.');
     state.multiplayer.lobbySubscription = () => {};
   }
-  state.multiplayer.lobbyList.loading = true;
-  state.multiplayer.lobbyList.error = null;
-  requestRender();
+  
+  // Don't call requestRender here - the subscription callback or primeLobbyListing will handle it
   primeLobbyListing(query);
 }
 
@@ -1004,9 +1097,11 @@ export function canCurrentUserAct() {
   if (!userId) return false;
   const localSeat = state.multiplayer.localSeat;
   const localIndex = localSeat === 'guest' ? 1 : 0;
-  const isPendingTarget = Boolean(state.game?.pendingAction && state.game.pendingAction.controller === localIndex);
-  const isActiveTurn = match.activePlayer === localIndex;
   const game = state.game;
+  
+  // Use game.currentPlayer as single source of truth
+  const isPendingTarget = Boolean(game?.pendingAction && game.pendingAction.controller === localIndex);
+  const isActiveTurn = game?.currentPlayer === localIndex;
   const isBlockingTurn = Boolean(
     game?.combat &&
       game.combat.stage === 'blockers' &&

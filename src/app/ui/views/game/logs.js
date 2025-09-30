@@ -2,6 +2,7 @@ import { state } from '../../../state.js';
 import { describeRequirement } from '../../../game/core/index.js';
 import { renderStatusChips, renderTypeBadge } from './cards.js';
 import { escapeHtml, formatText, sanitizeClass } from './shared.js';
+import { getLocalSeatIndex } from '../../../multiplayer/runtime.js';
 
 export function renderTopStatusGrid({ game, battleLogEntries, spellLogEntries }) {
   return `
@@ -95,7 +96,11 @@ function renderActiveSpellSlot(game) {
     : pending?.awaitingConfirmation && confirmedCount > 0
       ? `<div class="target-progress">${confirmedCount} target${confirmedCount === 1 ? '' : 's'} ready</div>`
       : '';
-  const isPlayerAction = pending?.controller === 0;
+  
+  // CRITICAL: Check if the local player is the controller, not hardcoded player 0
+  const localSeatIndex = getLocalSeatIndex();
+  const isPlayerAction = pending?.controller === localSeatIndex;
+  
   const confirmButton = isPlayerAction && pending?.awaitingConfirmation
     ? '<button data-action="confirm-pending" class="confirm">Choose</button>'
     : isPlayerAction && requirement?.allowLess

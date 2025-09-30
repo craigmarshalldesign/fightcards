@@ -24,7 +24,8 @@ import {
 
 export function attachEventHandlers(root) {
   attachMultiplayerEventHandlers(root);
-  ensureMultiplayerScreenSubscriptions();
+  // Only set up subscriptions once when entering a screen, not on every render
+  // The subscription callbacks will handle subsequent updates
   root.querySelectorAll('[data-action="start"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.screen = 'mode-select';
@@ -50,6 +51,67 @@ export function attachEventHandlers(root) {
     });
   });
 
+  root.querySelectorAll('[data-action="back-menu-from-game-over"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      // Clean up match data when leaving game-over screen
+      if (state.multiplayer.currentMatchId) {
+        const { deleteMatchData } = await import('../multiplayer/runtime.js');
+        await deleteMatchData(state.multiplayer.currentMatchId);
+      }
+      resetToMenu();
+    });
+  });
+
+  root.querySelectorAll('[data-action="show-end-game-modal"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ui.showEndGameModal = true;
+      requestRender();
+    });
+  });
+
+  root.querySelectorAll('[data-action="cancel-end-game"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ui.showEndGameModal = false;
+      requestRender();
+    });
+  });
+
+  root.querySelectorAll('[data-action="confirm-end-game"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      state.ui.showEndGameModal = false;
+      
+      // Clean up match data if multiplayer
+      if (state.multiplayer.currentMatchId) {
+        try {
+          const { enqueueMatchEvent, deleteMatchData, MULTIPLAYER_EVENT_TYPES } = await import('../multiplayer/runtime.js');
+          console.log('Ending multiplayer game:', state.multiplayer.currentMatchId);
+          // Notify the other player that the game ended
+          await enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.GAME_ENDED, {
+            endedBy: state.auth.user?.id,
+          });
+          // Give the event time to propagate before deleting
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await deleteMatchData(state.multiplayer.currentMatchId);
+        } catch (error) {
+          console.error('Error ending multiplayer game:', error);
+        }
+      }
+      
+      resetToMenu();
+    });
+  });
+
+  // Close end game modal when clicking overlay
+  root.querySelectorAll('[data-end-game-overlay]').forEach((overlay) => {
+    overlay.addEventListener('click', (event) => {
+      if (event.target.closest('[data-end-game-modal]')) {
+        return;
+      }
+      state.ui.showEndGameModal = false;
+      requestRender();
+    });
+  });
+
   root.querySelectorAll('[data-action="choose-mode"]').forEach((btn) => {
     btn.addEventListener('click', (event) => {
       const mode = event.currentTarget.getAttribute('data-mode');
@@ -58,7 +120,9 @@ export function attachEventHandlers(root) {
         requestRender();
       } else if (mode === 'multiplayer') {
         state.screen = 'multiplayer-lobbies';
+        // Set up lobby subscription when entering multiplayer mode
         requestRender();
+        ensureMultiplayerScreenSubscriptions();
       }
     });
   });
@@ -175,6 +239,8 @@ function bindGameEvents(root) {
   const declareBtn = root.querySelector('[data-action="declare-attackers"]');
   if (declareBtn) {
     declareBtn.addEventListener('click', () => {
+      if (!canCurrentUserAct()) return;
+      if (state.multiplayer.replayingEvents) return;
       confirmAttackers();
     });
   }
@@ -182,6 +248,8 @@ function bindGameEvents(root) {
   const skipBtn = root.querySelector('[data-action="skip-combat"]');
   if (skipBtn) {
     skipBtn.addEventListener('click', () => {
+      if (!canCurrentUserAct()) return;
+      if (state.multiplayer.replayingEvents) return;
       skipCombat();
     });
   }

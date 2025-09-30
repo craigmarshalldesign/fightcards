@@ -158,6 +158,16 @@ function renderHostLobbyDetail(lobby, lobbyTitle, statusLabel) {
       ? 'Your opponent is locked in and ready to go.'
       : 'Opponent is choosing a deck or readying up.'
     : 'Share this lobby with a friend and wait for them to join.';
+  
+  const countdown = state.multiplayer.lobbyCountdown;
+  const countdownDisplay = typeof countdown === 'number' && countdown > 0
+    ? `
+      <div class="lobby-countdown">
+        <span class="countdown-icon">⏱️</span>
+        <span class="countdown-text">Lobby closes in ${countdown}s</span>
+      </div>
+    `
+    : '';
 
   return `
     <div class="view hero-view lobby-detail">
@@ -165,6 +175,7 @@ function renderHostLobbyDetail(lobby, lobbyTitle, statusLabel) {
         <canvas class="particle-canvas" aria-hidden="true"></canvas>
         <div class="hero-gradient"></div>
       </div>
+      ${countdownDisplay}
       <div class="hero-panel wide lobby-panel">
         <div class="hero-header">
           <span class="hero-kicker">Lobby Control</span>
@@ -207,7 +218,7 @@ function renderHostLobbyDetail(lobby, lobbyTitle, statusLabel) {
         </div>
         <div class="lobby-detail-footer">
           <span class="ready-icon" aria-hidden="true">⚔️</span>
-          <span class="ready-text">Both players must pick distinct decks and ready up before battle begins.</span>
+          <span class="ready-text">Both players must pick decks and ready up before battle begins.</span>
         </div>
       </div>
     </div>
@@ -389,14 +400,11 @@ function renderDeckPills(seat, seatColor, opponentColor) {
       ${Object.entries(COLORS)
         .map(([colorKey, info]) => {
           const isSelected = seatColor === colorKey;
-          const isUnavailable = opponentColor === colorKey && !isSelected;
+          // Allow players to choose the same deck color - no restrictions
           const classes = ['deck-pill', `deck-${colorKey}`];
           if (isSelected) classes.push('selected');
-          if (isUnavailable) classes.push('disabled');
           return `
-            <button class="${classes.join(' ')}" data-action="choose-deck" data-seat="${seat}" data-color="${colorKey}" ${
-              isUnavailable ? 'disabled' : ''
-            } style="--deck-accent:${info.accent}; --deck-accent-soft:${info.accentSoft};">
+            <button class="${classes.join(' ')}" data-action="choose-deck" data-seat="${seat}" data-color="${colorKey}" style="--deck-accent:${info.accent}; --deck-accent-soft:${info.accentSoft};">
               <span class="deck-pill-label">${escapeHtml(info.name)}</span>
             </button>
           `;

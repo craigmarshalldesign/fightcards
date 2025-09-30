@@ -10,6 +10,7 @@ import {
   prepareSpell,
 } from './core/index.js';
 import { toggleAttacker, selectBlocker, assignBlockerToAttacker } from './core/index.js';
+import { getLocalSeatIndex } from '../multiplayer/runtime.js';
 
 export function handleHandCardClick(cardId) {
   const game = state.game;
@@ -20,19 +21,21 @@ export function handleHandCardClick(cardId) {
     requestRender();
     return;
   }
-  const player = game.players[0];
+  // Use local seat index instead of hardcoded 0
+  const localPlayerIndex = getLocalSeatIndex();
+  const player = game.players[localPlayerIndex];
   const card = player.hand.find((c) => c.instanceId === cardId);
   if (!card) return;
-  if (!canPlayCard(card, 0, game)) {
+  if (!canPlayCard(card, localPlayerIndex, game)) {
     addLog('Cannot play that card right now.');
     requestRender();
     return;
   }
   if (card.type === 'creature') {
-    playCreature(0, card);
+    playCreature(localPlayerIndex, card);
     requestRender();
   } else {
-    prepareSpell(0, card);
+    prepareSpell(localPlayerIndex, card);
   }
 }
 
@@ -41,16 +44,24 @@ export function handleCreatureClick(cardId, controller) {
   if (!game) return;
   const creature = game.players[controller].battlefield.find((c) => c.instanceId === cardId);
   if (!creature) return;
+  const localPlayerIndex = getLocalSeatIndex();
+  
   if (game.pendingAction) {
     handleTargetSelection(creature, controller);
     return;
   }
-  if (game.phase === 'combat' && game.currentPlayer === 0 && controller === 0 && game.combat?.stage === 'choose') {
+  
+  // Combat - use local player index for your own creatures
+  if (game.phase === 'combat' && game.currentPlayer === localPlayerIndex && controller === localPlayerIndex && game.combat?.stage === 'choose') {
     toggleAttacker(creature);
     return;
   }
-  if (game.blocking && game.currentPlayer === 1 && game.combat?.stage === 'blockers') {
-    if (controller === 0) {
+  
+  // Blocking - defender's perspective
+  const defendingIndex = game.currentPlayer === 0 ? 1 : 0;
+  if (game.blocking && localPlayerIndex === defendingIndex && game.combat?.stage === 'blockers') {
+    if (controller === localPlayerIndex) {
+      // Selecting your own creature as blocker
       if (game.blocking.selectedBlocker && game.blocking.selectedBlocker.instanceId === creature.instanceId) {
         game.blocking.selectedBlocker = null;
         requestRender();
@@ -59,7 +70,8 @@ export function handleCreatureClick(cardId, controller) {
       selectBlocker(creature);
       return;
     }
-    if (controller === 1) {
+    if (controller !== localPlayerIndex) {
+      // Assigning blocker to attacking creature
       assignBlockerToAttacker(creature);
       return;
     }
