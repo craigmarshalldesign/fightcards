@@ -220,13 +220,7 @@ export function cancelPendingAction() {
   const wasTrigger = pendingAction.type === 'trigger';
   const wasOptionalTrigger = wasTrigger && pendingAction.optional;
   
-  // Sync to multiplayer before cleaning up
-  if (isMultiplayerMatchActive()) {
-    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CANCELLED, {
-      controller: pendingAction.controller,
-    });
-  }
-  
+  // Restore card to hand
   if (pendingAction.type === 'summon' && pendingAction.card) {
     const player = game.players[pendingAction.controller];
     player.hand.push(pendingAction.card);
@@ -239,24 +233,43 @@ export function cancelPendingAction() {
     player.hand.push(pendingAction.card);
     sortHand(player);
   }
+  
+  // Cleanup and clear
   cleanupPending(pendingAction);
   game.pendingAction = null;
   
-  if (!isMultiplayerMatchActive()) {
-    if (pendingAction.type === 'spell') {
-      addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')], undefined, 'spell');
-    } else if (wasTrigger && pendingAction.card) {
-      if (wasOptionalTrigger) {
-        addLog([cardSegment(pendingAction.card), textSegment(' ability skipped.')]);
-      } else {
-        addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
-      }
-    } else if (pendingAction.card) {
-      addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
+  // Log the cancellation
+  if (pendingAction.type === 'spell') {
+    addLog([cardSegment(pendingAction.card), textSegment(' cancelled.')], undefined, 'spell');
+  } else if (wasTrigger && pendingAction.card) {
+    if (wasOptionalTrigger) {
+      addLog([cardSegment(pendingAction.card), textSegment(' ability skipped.')]);
     } else {
-      addLog([textSegment('Action cancelled.')]);
+      addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
     }
+  } else if (pendingAction.card) {
+    addLog([cardSegment(pendingAction.card), textSegment(' action cancelled.')]);
+  } else {
+    addLog([textSegment('Action cancelled.')]);
   }
+  
+  // Sync to multiplayer AFTER doing it locally
+  if (isMultiplayerMatchActive()) {
+    const cardPayload = pendingAction.card ? {
+      id: pendingAction.card.id,
+      instanceId: pendingAction.card.instanceId,
+      name: pendingAction.card.name,
+      type: pendingAction.card.type,
+      color: pendingAction.card.color,
+      cost: pendingAction.card.cost,
+    } : null;
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CANCELLED, {
+      controller: pendingAction.controller,
+      kind: pendingAction.type,
+      card: cardPayload,
+    });
+  }
+  
   requestRender();
   if (wasTrigger) {
     checkForWinner();

@@ -52,20 +52,29 @@ export function grantShimmer(creature, duration = 'turn') {
 
 export function bounceCreature(creature, controllerIndex) {
   const player = state.game.players[controllerIndex];
+  
+  // CRITICAL: Don't emit events during event replay to prevent loops
+  const shouldEmitEvents = !isMultiplayerMatchActive() || !state.multiplayer?.replayingEvents;
+  
+  if (shouldEmitEvents && isMultiplayerMatchActive()) {
+    // Emit events BEFORE modifying state (for multiplayer event-only mode)
+    const zone = creature.isToken ? 'graveyard' : 'hand';
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_PLAYED, {
+      controller: controllerIndex,
+      card: { id: creature.id, instanceId: creature.instanceId },
+      zone,
+      token: creature.isToken || false,
+      reason: creature.isToken ? 'token-bounce-destroyed' : 'bounce',
+    });
+    return; // Don't execute locally - let event replay handle it
+  }
+  
+  // Execute bounce (single-player or during event replay)
   removeFromBattlefield(player, creature.instanceId);
   
   // Tokens are destroyed when they leave the battlefield instead of returning to hand
   if (creature.isToken) {
     addLog([cardSegment(creature), textSegment(' is destroyed (token cannot return to hand).')]);
-    if (isMultiplayerMatchActive()) {
-      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_PLAYED, {
-        controller: controllerIndex,
-        card: { id: creature.id, instanceId: creature.instanceId },
-        zone: 'graveyard',
-        token: true,
-        reason: 'token-bounce-destroyed',
-      });
-    }
     return;
   }
   
@@ -92,14 +101,6 @@ export function bounceCreature(creature, controllerIndex) {
   player.hand.push(creature);
   sortHand(player);
   addLog([cardSegment(creature), textSegment(' returns to '), playerSegment(player), textSegment("'s hand.")]);
-  if (isMultiplayerMatchActive()) {
-    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_PLAYED, {
-      controller: controllerIndex,
-      card: { id: creature.id, instanceId: creature.instanceId },
-      zone: 'hand',
-      reason: 'bounce',
-    });
-  }
 }
 
 export function bounceStrongestCreatures(controllerIndex, amount) {
@@ -168,7 +169,8 @@ export function removeFromBattlefield(player, instanceId) {
   const index = player.battlefield.findIndex((c) => c.instanceId === instanceId);
   if (index >= 0) {
     const [removed] = player.battlefield.splice(index, 1);
-    if (removed && isMultiplayerMatchActive()) {
+    // CRITICAL: Don't emit events during event replay to prevent loops
+    if (removed && isMultiplayerMatchActive() && !state.multiplayer?.replayingEvents) {
       enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_LEFT_BATTLEFIELD, {
         controller: state.game.players.indexOf(player),
         card: cardLite(removed),
@@ -198,7 +200,27 @@ export function dealDamageToCreature(creature, controllerIndex, amount) {
 
 export function destroyCreature(creature, controllerIndex) {
   const player = state.game.players[controllerIndex];
+  
+  // CRITICAL: Don't emit events during event replay to prevent loops
+  // Only emit events in single-player or when called outside of replay
+  const shouldEmitEvents = !isMultiplayerMatchActive() || !state.multiplayer?.replayingEvents;
+  
+  if (shouldEmitEvents && isMultiplayerMatchActive()) {
+    // Emit events BEFORE modifying state (for multiplayer event-only mode)
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CARD_LEFT_BATTLEFIELD, {
+      controller: controllerIndex,
+      card: cardLite(creature),
+    });
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CREATURE_DESTROYED, {
+      controller: controllerIndex,
+      card: cardLite(creature),
+    });
+    return; // Don't execute locally - let event replay handle it
+  }
+  
+  // Execute destruction (single-player or during event replay)
   removeFromBattlefield(player, creature.instanceId);
+  
   // Reset transient and modified state when a creature dies
   creature.damageMarked = 0;
   creature.buffs = [];
@@ -222,32 +244,36 @@ export function destroyCreature(creature, controllerIndex) {
   recordCreatureLoss(controllerIndex);
   player.graveyard.push(creature);
   addLog([cardSegment(creature), textSegment(' dies.')]);
-  if (isMultiplayerMatchActive()) {
-    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.CREATURE_DESTROYED, {
-      controller: controllerIndex,
-      card: cardLite(creature),
-    });
-  }
 }
 
 export function dealDamageToPlayer(index, amount) {
   const player = state.game.players[index];
-  recordDamageToPlayer(index, amount);
-  player.life -= amount;
-  addLog([
-    playerSegment(player),
-    textSegment(' takes '),
-    damageSegment(amount),
-    textSegment(` damage (life ${player.life}).`),
-  ]);
-  if (isMultiplayerMatchActive()) {
+  
+  // CRITICAL: Apply damage directly if:
+  // 1. Single-player mode, OR
+  // 2. We're currently replaying events (called from within event handlers)
+  // Only emit events when called from game logic outside of replay
+  const shouldApplyDirectly = !isMultiplayerMatchActive() || state.multiplayer?.replayingEvents;
+  
+  if (shouldApplyDirectly) {
+    // Single-player OR event replay: apply damage immediately
+    recordDamageToPlayer(index, amount);
+    player.life -= amount;
+    addLog([
+      playerSegment(player),
+      textSegment(' takes '),
+      damageSegment(amount),
+      textSegment(` damage (life ${player.life}).`),
+    ]);
+    checkForWinnerHook();
+  } else {
+    // Multiplayer (not replaying): only emit event, let event replay handle the damage
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.LIFE_CHANGED, {
       controller: index,
       delta: -amount,
-      life: player.life,
+      life: player.life - amount,
     });
   }
-  checkForWinnerHook();
 }
 
 export function getCreatureStats(creature, controllerIndex, game) {

@@ -1,6 +1,6 @@
 import { state, requestRender, db } from '../state.js';
 import { buildDeck, CARD_LIBRARY } from '../../game/cards/index.js';
-import { createPlayer, drawCards, initializeCreature, spendMana } from '../game/core/players.js';
+import { createPlayer, drawCards, initializeCreature, spendMana, removeFromHand, sortHand } from '../game/core/players.js';
 import { createInitialStats } from '../game/core/stats.js';
 import { cloneGameStateForNetwork, checkForWinner } from '../game/core/runtime.js';
 import {
@@ -125,6 +125,11 @@ export async function enqueueMatchEvent(type, payload) {
   }
   const match = state.multiplayer.match;
   const nextSequence = match.nextSequence ?? 1;
+  
+  // CRITICAL: Immediately increment nextSequence in local state to prevent race conditions
+  // This ensures rapid successive calls use different sequence numbers
+  match.nextSequence = nextSequence + 1;
+  
   try {
     const eventId = generateId();
     const now = Date.now();
@@ -146,6 +151,8 @@ export async function enqueueMatchEvent(type, payload) {
     await db.transact(ops.map((chunk) => applyMultiplayerRuleParams(chunk)).filter(Boolean));
   } catch (error) {
     console.error('Failed to enqueue match event', type, error);
+    // Rollback the optimistic increment on failure
+    match.nextSequence = nextSequence;
   }
 }
 
@@ -359,6 +366,36 @@ function cloneCardForEvent(payload) {
   return instance;
 }
 
+function ensureCardRemovedFromHand(player, instanceId, controller) {
+  if (!player) {
+    return;
+  }
+  const index = player.hand.findIndex((card) => card.instanceId === instanceId);
+  if (index >= 0) {
+    player.hand.splice(index, 1);
+    return;
+  }
+  const localSeat = getLocalSeatIndex();
+  if (controller === localSeat) {
+    // Active player already removed this card locally for immediate feedback
+    return;
+  }
+  if (player.hand.length > 0) {
+    player.hand.pop();
+  }
+}
+
+function ensureCardRestoredToHand(player, card, controller) {
+  if (!player || !card) {
+    return;
+  }
+  const exists = player.hand.some((handCard) => handCard.instanceId === card.instanceId);
+  if (!exists) {
+    player.hand.push(card);
+    sortHand(player);
+  }
+}
+
 function applyMatchEvent(game, event) {
   const { type, payload } = event;
   switch (type) {
@@ -396,6 +433,24 @@ function applyMatchEvent(game, event) {
         state.multiplayer.match.phase = payload.phase || 'main1';
       }
       
+      // CRITICAL: Clean up end-of-turn effects for ALL creatures (both players)
+      game.players.forEach((p) => {
+        p.battlefield.forEach((creature) => {
+          // Clear damage marked at end of turn
+          creature.damageMarked = 0;
+          
+          // Remove end-of-turn buffs
+          if (creature.buffs) {
+            creature.buffs = creature.buffs.filter((buff) => buff.duration !== 'endOfTurn');
+          }
+          
+          // Decrement frozen turns
+          if (creature.frozenTurns) {
+            creature.frozenTurns = Math.max(0, creature.frozenTurns - 1);
+          }
+        });
+      });
+      
       // Apply beginning of turn effects (mana, cards, creature resets)
       const activePlayer = game.players[payload.activePlayer];
       if (activePlayer) {
@@ -425,6 +480,9 @@ function applyMatchEvent(game, event) {
       game.blocking = null;
       game.preventCombatDamageFor = null;
       game.preventDamageToAttackersFor = null;
+      
+      // CRITICAL: Request render so UI updates with new turn
+      requestRender();
       break;
     case EVENT_TYPES.PHASE_CHANGED:
       game.phase = payload.phase;
@@ -464,16 +522,56 @@ function applyMatchEvent(game, event) {
       handleCardPlayed(game, payload);
       break;
     case EVENT_TYPES.TOKEN_CREATED:
-      addLog([playerSegment(game.players[payload.controller]), textSegment(' creates token '), cardSegment(payload.card), textSegment('.')]);
+      // CRITICAL: Actually create the token for both players during event replay
+      const tokenController = game.players[payload.controller];
+      if (tokenController) {
+        const fullToken = cloneCardForEvent(payload);
+        if (fullToken) {
+          initializeCreature(fullToken);
+          tokenController.battlefield.push(fullToken);
+          addLog([playerSegment(tokenController), textSegment(' creates '), cardSegment(fullToken), textSegment('.')]);
+        }
+      }
       break;
     case EVENT_TYPES.CARD_LEFT_BATTLEFIELD:
       addLog(createCardEventLog(type, payload));
       break;
     case EVENT_TYPES.CREATURE_DESTROYED:
-      // CRITICAL: The actual creature destruction (remove from battlefield, add to graveyard)
-      // happens when both players call checkForDeadCreatures() or destroyCreature()
-      // This event is just for logging purposes
-      addLog(createCardEventLog(type, payload));
+      // CRITICAL: Actually destroy the creature during event replay
+      // Find the creature on the battlefield to get the full card object
+      const destroyPlayer = game.players[payload.controller];
+      const creatureToDestroy = destroyPlayer?.battlefield.find(c => c.instanceId === payload.card.instanceId);
+      
+      if (creatureToDestroy) {
+        // Remove from battlefield
+        const index = destroyPlayer.battlefield.indexOf(creatureToDestroy);
+        if (index >= 0) {
+          destroyPlayer.battlefield.splice(index, 1);
+        }
+        
+        // Reset creature state
+        creatureToDestroy.damageMarked = 0;
+        creatureToDestroy.buffs = [];
+        creatureToDestroy.temporaryHaste = false;
+        creatureToDestroy.frozenTurns = 0;
+        if (typeof creatureToDestroy.originalAttack === 'number') {
+          creatureToDestroy.baseAttack = creatureToDestroy.originalAttack;
+        }
+        if (typeof creatureToDestroy.originalToughness === 'number') {
+          creatureToDestroy.baseToughness = creatureToDestroy.originalToughness;
+        }
+        delete creatureToDestroy._dying;
+        delete creatureToDestroy._destroyScheduled;
+        
+        // Add to graveyard
+        destroyPlayer.graveyard.push(creatureToDestroy);
+        
+        // Log with full card object so name appears
+        addLog([cardSegment(creatureToDestroy), textSegment(' dies.')]);
+      } else {
+        // Fallback if creature not found
+        addLog(createCardEventLog(type, payload));
+      }
       break;
     case EVENT_TYPES.PENDING_CREATED:
       rebuildPendingFromEvent(game, payload);
@@ -485,8 +583,39 @@ function applyMatchEvent(game, event) {
       finalizePendingFromEvent(game, payload);
       break;
     case EVENT_TYPES.PENDING_CANCELLED:
-      game.pendingAction = null;
-      addLog([textSegment('Action cancelled.')]);
+      // CRITICAL: This event is for the OPPONENT only
+      // The active player already handled cancellation locally
+      // So if pending action is null, that's fine - it means the active player already cleared it
+      
+      if (game.pendingAction) {
+        const pending = game.pendingAction;
+        const player = game.players[payload.controller];
+        const fullCard = cloneCardForEvent(payload) || pending.card || payload.card;
+        
+        if (fullCard && player) {
+          ensureCardRestoredToHand(player, fullCard, payload.controller);
+          
+          // Restore mana for summons
+          if (payload.kind === 'summon') {
+            const cost = fullCard.cost ?? 0;
+            player.availableMana = Math.min(player.maxMana, player.availableMana + cost);
+          }
+          
+          // Log the cancellation
+          if (payload.kind === 'spell') {
+            addLog([cardSegment(fullCard), textSegment(' cancelled.')], undefined, 'spell');
+          } else {
+            addLog([cardSegment(fullCard), textSegment(' action cancelled.')]);
+          }
+        }
+        
+        // Clean up the pending action
+        cleanupPending(pending);
+        game.pendingAction = null;
+      }
+      
+      // Always request render to update UI
+      requestRender();
       break;
     case EVENT_TYPES.COMBAT_STARTED:
       // CRITICAL: Build initial attackers array for the attacking player
@@ -618,12 +747,29 @@ function applyMatchEvent(game, event) {
       game.blocking = null;
       break;
     case EVENT_TYPES.LIFE_CHANGED:
-      game.players[payload.controller].life = payload.life;
+      // CRITICAL: Apply life change for both players during event replay
+      const lifePlayer = game.players[payload.controller];
+      if (lifePlayer) {
+        lifePlayer.life = payload.life;
+        const deltaText = payload.delta > 0 ? 'gains' : 'takes';
+        const deltaAmount = Math.abs(payload.delta);
+        if (payload.delta > 0) {
+          addLog([playerSegment(lifePlayer), textSegment(` gains ${deltaAmount} life (life ${lifePlayer.life}).`)]);
+        } else {
+          addLog([playerSegment(lifePlayer), textSegment(' takes '), damageSegment(deltaAmount), textSegment(` damage (life ${lifePlayer.life}).`)]);
+        }
+      }
       // Check if the game ended due to this life change
       checkForWinner();
       break;
     case EVENT_TYPES.DRAW_CARD:
-      addLog([playerSegment(game.players[payload.controller]), textSegment(' draws a card.')]);
+      // CRITICAL: Actually draw the cards for both players during event replay
+      const drawingPlayer = game.players[payload.controller];
+      if (drawingPlayer) {
+        drawCards(drawingPlayer, payload.amount);
+        const cardText = payload.amount === 1 ? 'card' : 'cards';
+        addLog([playerSegment(drawingPlayer), textSegment(` draws ${payload.amount} ${cardText}.`)]);
+      }
       break;
     case EVENT_TYPES.LOG:
       addLog(payload.message, undefined, payload.category);
@@ -653,6 +799,9 @@ function handleCardPlayed(game, payload) {
     console.error('Failed to clone card for CARD_PLAYED event', payload.card);
     return;
   }
+  
+  // CRITICAL: Remove from hand during event replay so both players see updated hand count
+  ensureCardRemovedFromHand(player, fullCard.instanceId, payload.controller);
   
   // Add the card to the appropriate zone
   if (payload.zone === 'battlefield') {
@@ -708,10 +857,7 @@ function rebuildPendingFromEvent(game, payload) {
     
     // Remove from hand for spells and summons
     if (player) {
-      const cardIndex = player.hand.findIndex(c => c.instanceId === payload.card.instanceId);
-      if (cardIndex !== -1) {
-        player.hand.splice(cardIndex, 1);
-      }
+      ensureCardRemovedFromHand(player, payload.card.instanceId, payload.controller);
     }
   }
   
@@ -800,6 +946,8 @@ function finalizePendingFromEvent(game, payload) {
     if (player) {
       const fullCard = cloneCardForEvent(payload);
       if (fullCard) {
+        // CRITICAL: Remove from hand during event replay so both players see updated hand count
+        ensureCardRemovedFromHand(player, fullCard.instanceId, payload.controller);
         initializeCreature(fullCard);
         player.battlefield.push(fullCard);
         addLog([
@@ -813,6 +961,9 @@ function finalizePendingFromEvent(game, payload) {
   } else if (payload.kind === 'spell' && pending.card) {
     // Handle spell casting
     if (player) {
+      // CRITICAL: Remove from hand during event replay so both players see updated hand count
+      ensureCardRemovedFromHand(player, pending.card.instanceId, payload.controller);
+      
       // Build target segments for log
       const targetSegments = [];
       if (pending.chosenTargets) {

@@ -26,19 +26,9 @@ export function resolveEffects(effects, pending) {
   effects.forEach((effect, idx) => {
     const targets = pending.chosenTargets[idx] || [];
     applyEffect(effect, pending.controller, targets, pending.card);
-    if (isMultiplayerMatchActive()) {
-      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.EFFECT_RESOLVED, {
-        effectIndex: idx,
-        effect,
-        controller: pending.controller,
-        card: cardToEventPayload(pending.card),
-        targets: targets.map((target) => ({
-          type: target.type,
-          controller: target.controller,
-          creature: target.creature ? cardToEventPayload(target.creature) : undefined,
-        })),
-      });
-    }
+    // NOTE: EFFECT_RESOLVED events were removed - they're redundant!
+    // resolveEffects() is already called during PENDING_RESOLVED event replay,
+    // so both players execute the same effects. No need for separate events.
   });
 }
 
@@ -65,9 +55,15 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
       break;
     }
     case 'draw': {
-      drawCards(controller, effect.amount);
-      addLog([playerSegment(controller), textSegment(` draws ${effect.amount} card(s).`)]);
-      if (isMultiplayerMatchActive()) {
+      // CRITICAL: Check if we're replaying events
+      // If replaying, draw directly; otherwise emit event for multiplayer sync
+      if (!isMultiplayerMatchActive() || state.multiplayer?.replayingEvents) {
+        // Single-player OR event replay: draw directly
+        drawCards(controller, effect.amount);
+        const cardText = effect.amount === 1 ? 'card' : 'cards';
+        addLog([playerSegment(controller), textSegment(` draws ${effect.amount} ${cardText}.`)]);
+      } else {
+        // Multiplayer (not replaying): emit event for sync
         enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.DRAW_CARD, {
           controller: controllerIndex,
           amount: effect.amount,
@@ -125,9 +121,13 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     }
     case 'createToken': {
       const token = instantiateToken(effect.token, controller.color);
-      controller.battlefield.push(token);
-      addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
-      if (isMultiplayerMatchActive()) {
+      // CRITICAL: In multiplayer, only emit event - don't add to battlefield locally
+      // The event replay will handle token creation for both players
+      if (!isMultiplayerMatchActive()) {
+        controller.battlefield.push(token);
+        addLog([playerSegment(controller), textSegment(' creates '), cardSegment(token), textSegment('.')]);
+      } else {
+        // In multiplayer, just emit the event
         enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.TOKEN_CREATED, {
           controller: controllerIndex,
           card: cardToEventPayload(token),
@@ -190,13 +190,18 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
       break;
     }
     case 'gainLife': {
-      controller.life += effect.amount;
-      addLog([playerSegment(controller), textSegment(' gains '), healSegment(effect.amount), textSegment(' life.')]);
-       if (isMultiplayerMatchActive()) {
+      // CRITICAL: In multiplayer, only emit event - don't modify life locally
+      // The event replay will handle life changes for both players
+      if (!isMultiplayerMatchActive()) {
+        // Single-player: apply immediately
+        controller.life += effect.amount;
+        addLog([playerSegment(controller), textSegment(' gains '), healSegment(effect.amount), textSegment(' life.')]);
+      } else {
+        // Multiplayer: only emit event
         enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.LIFE_CHANGED, {
           controller: controllerIndex,
           delta: effect.amount,
-          life: controller.life,
+          life: controller.life + effect.amount,
         });
       }
       break;
