@@ -25,7 +25,7 @@ import {
   toggleAttacker,
   notifyTriggerResolved,
 } from '../combat/index.js';
-import { registerAIHelpers } from '../ai.js';
+import { registerAIHelpers } from '../ai-loader.js';
 import {
   autoSelectTargetsForRequirement,
   buildEffectRequirements,
@@ -343,23 +343,33 @@ export function handlePassive(card, controllerIndex, trigger) {
   confirmPendingAction(pending);
 }
 
-export function activateCreatureAbility(creatureId) {
+export function activateCreatureAbility(creatureId, playerIndex = null) {
   const game = state.game;
-  const localPlayerIndex = getLocalSeatIndex();
-  const creature = game.players[localPlayerIndex].battlefield.find((c) => c.instanceId === creatureId);
+  // CRITICAL: Support AI by allowing explicit playerIndex, otherwise use local player
+  const controllerIndex = playerIndex !== null ? playerIndex : getLocalSeatIndex();
+  const creature = game.players[controllerIndex].battlefield.find((c) => c.instanceId === creatureId);
   if (game.pendingAction) return;
   if (!creature || !creature.activated || creature.activatedThisTurn) return;
+  
+  // CRITICAL: Summoning sickness prevents using activated abilities
+  if (creature.summoningSickness) {
+    addLog([cardSegment(creature), textSegment(' has summoning sickness and cannot use its ability yet.')]);
+    requestRender();
+    return;
+  }
+  
   if (creature.frozenTurns > 0) {
     addLog([cardSegment(creature), textSegment(' is frozen and cannot use its ability right now.')]);
     requestRender();
     return;
   }
-  if (game.players[localPlayerIndex].availableMana < creature.activated.cost) return;
+  if (game.players[controllerIndex].availableMana < creature.activated.cost) return;
   const effect = creature.activated.effect;
   const requirements = buildEffectRequirements([effect]);
+  const player = game.players[controllerIndex];
   const pending = {
     type: 'ability',
-    controller: localPlayerIndex,
+    controller: controllerIndex,
     card: creature,
     effects: [effect],
     requirements,
@@ -368,7 +378,7 @@ export function activateCreatureAbility(creatureId) {
     chosenTargets: {},
     cancellable: true,
     awaitingConfirmation: false,
-    isAI: false,
+    isAI: Boolean(player.isAI),
   };
 
   if (!requirements.length) {
@@ -377,12 +387,11 @@ export function activateCreatureAbility(creatureId) {
     // In single-player, execute immediately
     if (isMultiplayerMatchActive()) {
       // Multiplayer: emit PENDING_RESOLVED event (skip PENDING_CREATED since no targeting needed)
-      const player = game.players[localPlayerIndex];
       spendMana(player, creature.activated.cost ?? 0);
       creature.activatedThisTurn = true;
       
       enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
-        controller: localPlayerIndex,
+        controller: controllerIndex,
         kind: 'ability',
         card: cardToEventPayload(creature),
         chosenTargets: {},
@@ -393,7 +402,6 @@ export function activateCreatureAbility(creatureId) {
     }
     
     // Single-player: execute immediately
-    const player = game.players[localPlayerIndex];
     spendMana(player, creature.activated.cost ?? 0);
     creature.activatedThisTurn = true;
     addLog([
@@ -403,7 +411,7 @@ export function activateCreatureAbility(creatureId) {
       textSegment(`'s ${creature.activated.name || 'ability'}.`),
     ]);
     resolveEffects([effect], {
-      controller: localPlayerIndex,
+      controller: controllerIndex,
       card: creature,
       requirements: [],
       requirementIndex: 0,
@@ -416,7 +424,7 @@ export function activateCreatureAbility(creatureId) {
   }
 
   pending.requirements.forEach((req) => {
-    const valid = getValidTargetsForRequirement(req, localPlayerIndex, creature);
+    const valid = getValidTargetsForRequirement(req, controllerIndex, creature);
     const requiredCount = req.count ?? 1;
     if (valid.length === 0) {
       pending.chosenTargets[req.effectIndex] = [];
@@ -425,7 +433,7 @@ export function activateCreatureAbility(creatureId) {
     if (req.allowLess) {
       return;
     }
-    const auto = autoSelectTargetsForRequirement(req, localPlayerIndex, creature);
+    const auto = autoSelectTargetsForRequirement(req, controllerIndex, creature);
     if (auto.length && auto.length <= requiredCount) {
       pending.chosenTargets[req.effectIndex] = auto.slice(0, requiredCount);
     }
@@ -436,12 +444,17 @@ export function activateCreatureAbility(creatureId) {
   // CRITICAL: Emit event in multiplayer so opponent can see the pending action and targeting arrows
   if (isMultiplayerMatchActive()) {
     enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CREATED, {
-      controller: localPlayerIndex,
+      controller: controllerIndex,
       kind: 'ability',
       card: cardToEventPayload(creature),
       requirements,
       effects: [effect],
     });
+  }
+  
+  // CRITICAL: Schedule AI pending resolution if AI is using the ability
+  if (player.isAI) {
+    scheduleAIPendingResolution(pending);
   }
   
   requestRender();
@@ -658,6 +671,7 @@ registerAIHelpers({
   advancePhase,
   playCreature,
   prepareSpell,
+  activateCreatureAbility,
   computeRequirements,
   removeFromHand,
   spendMana,

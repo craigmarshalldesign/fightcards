@@ -100,6 +100,7 @@ export function renderModeSelect() {
 }
 
 export function renderColorSelect() {
+  const currentDifficulty = state.ui.aiDifficulty || 'easy';
   return `
     <div class="view hero-view">
       <div class="hero-background" data-particle-field>
@@ -111,6 +112,27 @@ export function renderColorSelect() {
           <span class="hero-kicker">Forge Your Identity</span>
           <h2>Choose Your Element</h2>
           <p>Each element bends the battlefield in a different way. Tap a deck to begin.</p>
+        </div>
+        <div style="margin-bottom: 2rem; text-align: center;">
+          <div style="display: inline-flex; align-items: center; gap: 1rem; padding: 0.75rem 1.5rem; background: rgba(255,255,255,0.1); border-radius: 0.5rem; backdrop-filter: blur(10px);">
+            <span style="color: rgba(255,255,255,0.9); font-weight: 500;">AI Difficulty:</span>
+            <button 
+              class="difficulty-toggle ${currentDifficulty === 'easy' ? 'active' : ''}" 
+              data-action="set-difficulty" 
+              data-difficulty="easy"
+              style="padding: 0.5rem 1rem; background: ${currentDifficulty === 'easy' ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255,255,255,0.1)'}; border: 2px solid ${currentDifficulty === 'easy' ? '#4CAF50' : 'rgba(255,255,255,0.2)'}; border-radius: 0.25rem; color: white; font-weight: 600; cursor: pointer; transition: all 0.2s;"
+            >
+              Easy
+            </button>
+            <button 
+              class="difficulty-toggle ${currentDifficulty === 'hard' ? 'active' : ''}" 
+              data-action="set-difficulty" 
+              data-difficulty="hard"
+              style="padding: 0.5rem 1rem; background: ${currentDifficulty === 'hard' ? 'rgba(244, 67, 54, 0.3)' : 'rgba(255,255,255,0.1)'}; border: 2px solid ${currentDifficulty === 'hard' ? '#F44336' : 'rgba(255,255,255,0.2)'}; border-radius: 0.25rem; color: white; font-weight: 600; cursor: pointer; transition: all 0.2s;"
+            >
+              Hard
+            </button>
+          </div>
         </div>
         <div class="hero-card-grid color-grid">
           ${Object.entries(COLORS)

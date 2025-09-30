@@ -1,5 +1,5 @@
 import { state, requestRender } from '../../state.js';
-import { runAI } from '../ai.js';
+import { runAI } from '../ai-loader.js';
 
 export function cloneGameStateForNetwork(game) {
   return {

@@ -43,6 +43,7 @@ export const initialState = {
     previewCard: null,
     openGraveFor: null, // controller index (0 = player, 1 = opponent)
     showEndGameModal: false,
+    aiDifficulty: 'easy', // 'easy' or 'hard'
   },
 };
 

@@ -411,6 +411,18 @@ function executeAbility(pending) {
   const player = game.players[pending.controller];
   const creature = pending.card;
 
+  if (creature.summoningSickness) {
+    addLog([
+      cardSegment(creature),
+      textSegment(' has summoning sickness and cannot use its ability yet.'),
+    ]);
+    cleanupPending(pending);
+    game.pendingAction = null;
+    requestRender();
+    continueAIIfNeeded();
+    return;
+  }
+
   if (creature.frozenTurns > 0) {
     addLog([
       cardSegment(creature),

@@ -127,6 +127,14 @@ export function attachEventHandlers(root) {
     });
   });
 
+  root.querySelectorAll('[data-action="set-difficulty"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      const difficulty = event.currentTarget.getAttribute('data-difficulty');
+      state.ui.aiDifficulty = difficulty;
+      requestRender();
+    });
+  });
+
   root.querySelectorAll('[data-action="select-color"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const color = btn.getAttribute('data-color');

@@ -1,6 +1,6 @@
 export { registerPassiveHandler, triggerAttackPassive } from './passives.js';
 export { startCombatStage, toggleAttacker, confirmAttackers } from './attackers.js';
-export { prepareBlocks, selectBlocker, assignBlockerToAttacker, aiAssignBlocks } from './blockers.js';
+export { prepareBlocks, selectBlocker, assignBlockerToAttacker } from './blockers.js';
 export { skipCombat, resolveCombat } from './resolution.js';
 export { startTriggerStage, notifyTriggerResolved } from './triggers.js';
 export {

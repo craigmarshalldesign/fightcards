@@ -326,6 +326,7 @@ function renderCreature(creature, controllerIndex, game) {
     const canActivate =
       isLocalCreature &&
       !creature.activatedThisTurn &&
+      !creature.summoningSickness &&
       !(creature.frozenTurns > 0) &&
       (!game.pendingAction ||
         (game.pendingAction.type === 'ability' && game.pendingAction.card?.instanceId === creature.instanceId)) &&

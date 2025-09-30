@@ -8,6 +8,7 @@ import {
   enqueueMatchEvent,
   MULTIPLAYER_EVENT_TYPES,
 } from '../../multiplayer/runtime.js';
+import { assignAIBlocks } from '../ai-loader.js';
 
 export function prepareBlocks() {
   const game = state.game;
@@ -18,11 +19,22 @@ export function prepareBlocks() {
     awaitingDefender: false,
   };
   const defending = getDefendingPlayerIndex(game);
-  const defenders = game.players[defending].battlefield.filter((creature) => creature.type === 'creature');
-  if (defenders.length === 0) {
-    addLog([playerSegment(game.players[defending]), textSegment(' has no blockers.')]);
+  const allCreatures = game.players[defending].battlefield.filter((creature) => creature.type === 'creature');
+  const eligibleDefenders = allCreatures.filter(isBlockerEligible);
+  
+  // Check if there are no creatures at all, or all creatures are frozen/unable to block
+  if (allCreatures.length === 0 || eligibleDefenders.length === 0) {
+    if (eligibleDefenders.length === 0 && allCreatures.length > 0) {
+      addLog([playerSegment(game.players[defending]), textSegment(' has no eligible blockers (all frozen or unable to block).')]);
+    } else {
+      addLog([playerSegment(game.players[defending]), textSegment(' has no blockers.')]);
+    }
     if (game.players[defending].isAI) {
-      resolveCombat();
+      requestRender();
+      const AI_UI_DELAY_MS = 3000;
+      setTimeout(() => {
+        resolveCombat();
+      }, AI_UI_DELAY_MS);
       return;
     }
     game.blocking.awaitingDefender = true;
@@ -30,7 +42,7 @@ export function prepareBlocks() {
     return;
   }
   if (game.players[defending].isAI) {
-    aiAssignBlocks();
+    assignAIBlocks();
     requestRender();
     const AI_UI_DELAY_MS = 3000;
     setTimeout(() => {
@@ -47,19 +59,6 @@ export function prepareBlocks() {
   }
 }
 
-export function aiAssignBlocks() {
-  const game = state.game;
-  const defenders = game.players[1].battlefield.filter(isBlockerEligible);
-  game.blocking.attackers.forEach((attacker) => {
-    if (hasShimmer(attacker.creature)) {
-      return;
-    }
-    const blocker = defenders.shift();
-    if (blocker) {
-      game.blocking.assignments[attacker.creature.instanceId] = blocker;
-    }
-  });
-}
 
 export function selectBlocker(creature) {
   const game = state.game;

@@ -21,7 +21,7 @@ export const blueCreatures = [
     cost: 2,
     color: 'blue',
     attack: 1,
-    toughness: 3,
+    toughness: 2,
     passive: {
       type: 'onEnter',
       description: "Return an enemy creature to its owner's hand.",
@@ -36,7 +36,7 @@ export const blueCreatures = [
     cost: 3,
     color: 'blue',
     attack: 2,
-    toughness: 4,
+    toughness: 5,
     text: 'Bulky defender to hold the line.',
   },
   {
@@ -64,7 +64,7 @@ export const blueCreatures = [
     cost: 4,
     color: 'blue',
     attack: 3,
-    toughness: 5,
+    toughness: 3,
     passive: {
       type: 'static',
       description: 'Friendly creatures get +0/+1.',
@@ -79,7 +79,7 @@ export const blueCreatures = [
     cost: 4,
     color: 'blue',
     attack: 3,
-    toughness: 4,
+    toughness: 3,
     passive: {
       type: 'onEnter',
       description: 'Freeze an enemy creature.',
@@ -94,7 +94,7 @@ export const blueCreatures = [
     cost: 5,
     color: 'blue',
     attack: 3,
-    toughness: 6,
+    toughness: 5,
     text: 'Huge wall of water.',
   },
   {
@@ -104,7 +104,7 @@ export const blueCreatures = [
     cost: 5,
     color: 'blue',
     attack: 4,
-    toughness: 4,
+    toughness: 3,
     abilities: { shimmer: true },
     passive: {
       type: 'onEnter',
@@ -129,8 +129,8 @@ export const blueCreatures = [
     type: 'creature',
     cost: 6,
     color: 'blue',
-    attack: 6,
-    toughness: 7,
+    attack: 5,
+    toughness: 6,
     passive: {
       type: 'onEnter',
       description: "Return up to two enemy creatures to their owner's hand.",

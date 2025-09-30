@@ -204,6 +204,35 @@ export function autoSelectTargetsForRequirement(requirement, controllerIndex, so
         const enemy = selectCreatures(opponent.battlefield, opponentIndex, desired);
         return friendly.concat(enemy).slice(0, desired);
       }
+      
+      // CRITICAL: For damage effects with player targeting, prefer face unless we can kill a creature
+      if (requirement.effect?.type === 'damage' && requirement.allowPlayers) {
+        const damageAmount = requirement.effect.amount || 0;
+        const opponentCreatures = opponent.battlefield.filter(c => c.type === 'creature');
+        
+        // Find creatures we can actually kill
+        const killableCreatures = opponentCreatures.filter(creature => {
+          const stats = getCreatureStats(creature, opponentIndex, state.game);
+          const hp = stats.toughness - (creature.damageMarked || 0);
+          return damageAmount >= hp;
+        });
+        
+        if (killableCreatures.length > 0) {
+          // We can kill a creature - target the biggest one
+          killableCreatures.sort((a, b) => {
+            const aStats = getCreatureStats(a, opponentIndex, state.game);
+            const bStats = getCreatureStats(b, opponentIndex, state.game);
+            const aThreat = aStats.attack * 2 + aStats.toughness;
+            const bThreat = bStats.attack * 2 + bStats.toughness;
+            return bThreat - aThreat;
+          });
+          return [{ type: 'creature', creature: killableCreatures[0], controller: opponentIndex }];
+        } else {
+          // Can't kill anything - hit face for guaranteed damage
+          return [createPlayerTarget(opponentIndex)];
+        }
+      }
+      
       const enemy = selectCreatures(opponent.battlefield, opponentIndex, desired);
       const friendly = selectCreatures(controller.battlefield, controllerIndex, desired);
       const playerTargets = requirement.allowPlayers

@@ -23,9 +23,9 @@ export const blueSpells = [
     type: 'spell',
     color: 'blue',
     cost: 2,
-    text: 'Give a creature +2/+0 and shimmer (unblockable) until end of turn.',
+    text: 'Give a friendly creature +2/+0 and shimmer (unblockable) until end of turn.',
     effects: [
-      { type: 'temporaryBuff', target: 'creature', attack: 2, toughness: 0 },
+      { type: 'temporaryBuff', target: 'friendly-creature', attack: 2, toughness: 0 },
       { type: 'grantShimmer', duration: 'turn' },
     ],
   },

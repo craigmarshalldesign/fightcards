@@ -61,7 +61,7 @@ export const greenCreatures = [
       oncePerTurn: true,
     name: 'Fortify',
       description: 'Give a creature +0/+2 permanently.',
-      effect: { type: 'buff', target: 'friendly-creature', attack: 0, toughness: 2 },
+      effect: { type: 'buff', target: 'friendly-creature', attack: 0, toughness: 1 },
     },
     text: 'Grows allies over time.',
   },
