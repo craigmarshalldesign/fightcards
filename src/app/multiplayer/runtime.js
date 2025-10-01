@@ -732,6 +732,17 @@ function applyMatchEvent(game, event) {
               }
               dealDamageToCreature(blocker, defendingPlayerIndex, entry.damageToBlocker);
               
+              // CRITICAL: Handle Stomp (trample) damage
+              if (entry.stompDamage && entry.stompDamage > 0) {
+                addLog([
+                  cardSegment(attacker),
+                  textSegment(' tramples over for '),
+                  damageSegment(entry.stompDamage),
+                  textSegment(' damage!'),
+                ]);
+                dealDamageToPlayer(defendingPlayerIndex, entry.stompDamage);
+              }
+              
               if (entry.damageToAttacker > 0) {
                 addLog([
                   cardSegment(blocker),
@@ -740,6 +751,12 @@ function applyMatchEvent(game, event) {
                   textSegment(' damage to '),
                   cardSegment(attacker),
                   textSegment('.'),
+                ]);
+              } else if (entry.damageToAttacker === 0 && attacker.buffs?.some(b => b.hidden)) {
+                // Show Hidden message if attacker took no damage due to Hidden buff
+                addLog([
+                  cardSegment(attacker),
+                  textSegment(' is Hidden and takes no damage!'),
                 ]);
               }
               dealDamageToCreature(attacker, attackingPlayerIndex, entry.damageToAttacker);

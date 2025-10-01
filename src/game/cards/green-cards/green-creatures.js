@@ -21,7 +21,7 @@ export const greenCreatures = [
     cost: 2,
     color: 'green',
     attack: 2,
-    toughness: 3,
+    toughness: 2,
     passive: {
       type: 'onEnter',
       description: 'Give another friendly creature +1/+1.',
@@ -54,13 +54,13 @@ export const greenCreatures = [
     cost: 3,
     color: 'green',
     attack: 2,
-    toughness: 4,
+    toughness: 3,
     activated: {
       type: 'active',
       cost: 1,
       oncePerTurn: true,
     name: 'Fortify',
-      description: 'Give a creature +0/+2 permanently.',
+      description: 'Give a creature +0/+1 permanently.',
       effect: { type: 'buff', target: 'friendly-creature', attack: 0, toughness: 1 },
     },
     text: 'Grows allies over time.',
@@ -72,7 +72,7 @@ export const greenCreatures = [
     cost: 4,
     color: 'green',
     attack: 3,
-    toughness: 5,
+    toughness: 4,
     passive: {
       type: 'static',
       description: 'Other friendly creatures get +0/+1.',
@@ -88,8 +88,8 @@ export const greenCreatures = [
     color: 'green',
     attack: 4,
     toughness: 3,
-    abilities: { haste: true },
-    text: 'Ferocious beast that charges immediately.',
+    abilities: { stomp: true },
+    text: 'Ferocious beast that tramples over blockers.',
   },
   {
     id: 'green_creature_7',
@@ -98,7 +98,7 @@ export const greenCreatures = [
     cost: 5,
     color: 'green',
     attack: 4,
-    toughness: 6,
+    toughness: 5,
     passive: {
       type: 'onEnter',
       description: 'Gain 3 life when it enters.',
@@ -153,7 +153,7 @@ export const greenCreatures = [
     cost: 6,
     color: 'green',
     attack: 7,
-    toughness: 7,
+    toughness: 6,
     passive: {
       type: 'onEnter',
       description: 'Give all friendly creatures +1/+1.',

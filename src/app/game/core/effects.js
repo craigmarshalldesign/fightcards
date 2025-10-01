@@ -10,6 +10,7 @@ import {
   freezeCreature,
   grantHaste,
   grantShimmer,
+  grantStomp,
   instantiateToken,
 } from '../creatures.js';
 import { addLog, cardSegment, healSegment, playerSegment, textSegment } from '../log.js';
@@ -199,6 +200,50 @@ function applyEffect(effect, controllerIndex, targets, sourceCard) {
     case 'preventDamageToAttackers': {
       game.preventDamageToAttackersFor = controllerIndex;
       addLog([playerSegment(controller), textSegment(' protects attacking creatures this turn.')]);
+      break;
+    }
+    case 'grantHidden': {
+      // Grant Hidden buff to all friendly creatures
+      const friendlyCreatures = controller.battlefield.filter(c => c.type === 'creature');
+      friendlyCreatures.forEach(creature => {
+        if (!creature.buffs) creature.buffs = [];
+        creature.buffs.push({ 
+          attack: 0, 
+          toughness: 0, 
+          hidden: true, 
+          duration: 'endOfTurn',
+          name: 'Hidden',
+          color: '#90EE90' // Light green color
+        });
+      });
+      addLog([
+        playerSegment(controller), 
+        textSegment(' grants Hidden to all friendly creatures.')
+      ]);
+      break;
+    }
+    case 'grantStomp': {
+      // Grant Stomp to target creature(s)
+      targets.forEach(target => {
+        const duration = effect.duration || 'turn';
+        grantStomp(target.creature, duration);
+      });
+      addLog([
+        playerSegment(controller),
+        textSegment(' grants Stomp.')
+      ]);
+      break;
+    }
+    case 'grantStompToAll': {
+      // Grant Stomp to all friendly creatures
+      const friendlyCreatures = controller.battlefield.filter(c => c.type === 'creature');
+      friendlyCreatures.forEach(creature => {
+        grantStomp(creature, 'turn');
+      });
+      addLog([
+        playerSegment(controller),
+        textSegment(' grants Stomp to all friendly creatures.')
+      ]);
       break;
     }
     case 'damageAttackers': {

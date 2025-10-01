@@ -288,6 +288,14 @@ function getCreatureThreatLevel(creature, controllerIndex, game) {
   const stats = getCreatureStats(creature, controllerIndex, game);
   let threat = stats.attack * 2 + stats.toughness;
   
+  // CRITICAL FIX: Buffed creatures are higher priority targets for removal
+  // Check if creature has been buffed (has buffs array with items)
+  if (creature.buffs && creature.buffs.length > 0) {
+    threat += 3; // Buffed creatures are more valuable targets
+    // Extra value for each buff
+    threat += creature.buffs.length * 2;
+  }
+  
   // Boost value for abilities
   if (creature.abilities?.haste) threat += 2;
   if (creature.abilities?.shimmer || hasShimmer(creature)) threat += 3;
@@ -366,6 +374,12 @@ function shouldHoldCard(card, phase, hand, availableMana) {
   // CRITICAL: Card advantage evaluation
   const game = state.game;
   const opponent = game.players[0];
+  const aiPlayer = game.players[1];
+  
+  // CRITICAL FIX: If AI is desperate (low life), play EVERYTHING to try to win
+  if (aiPlayer.life <= 12) {
+    return false; // Never hold cards when desperate - play everything!
+  }
   
   // Don't hold creatures in main1 - we want them on board
   if (card.type === 'creature' && phase === 'main1') {
@@ -378,6 +392,22 @@ function shouldHoldCard(card, phase, hand, availableMana) {
     return true; // Can't play it anyway
   }
   
+  // CRITICAL FIX: If hand is large (5+ cards), be more aggressive about playing
+  // Don't hoard cards - use them!
+  if (hand.length >= 5) {
+    // With many cards, only hold if we literally can't use it now
+    // and it's expensive (6+ mana)
+    if (cost >= 6 && availableMana < cost) {
+      return true;
+    }
+    return false; // Play cards when we have many
+  }
+  
+  // If hand is small, don't hold cards (card disadvantage)
+  if (hand.length <= 3) {
+    return false;
+  }
+  
   // Evaluate if holding this card creates better future value
   const playNowValue = evaluateCardValue(card, 1, game);
   
@@ -386,18 +416,13 @@ function shouldHoldCard(card, phase, hand, availableMana) {
   const futureValue = evaluateManaEfficiency(futureHand, availableMana + 1, 2);
   const currentValue = evaluateManaEfficiency(hand, availableMana, 1);
   
-  // If hand is small, don't hold cards (card disadvantage)
-  if (hand.length <= 3) {
-    return false;
-  }
-  
-  // Bluffing: Sometimes hold cards randomly
-  if (shouldBluff() && Math.random() < 0.3) {
+  // Bluffing: Sometimes hold cards randomly (but less often)
+  if (shouldBluff() && Math.random() < 0.2) {
     return true;
   }
   
-  // Hold if future value is significantly better
-  return futureValue > currentValue * AI_SETTINGS.cardValueMultiplier;
+  // Hold if future value is significantly better (increased threshold)
+  return futureValue > currentValue * (AI_SETTINGS.cardValueMultiplier + 0.3);
 }
 
 // ============================================================================
@@ -512,10 +537,12 @@ function isCombatBuff(card) {
       'buff',                    // Permanent +attack/+toughness (Flame Shield)
       'selfBuff',                // Permanent buff to self (Blooming Hydra)
       'multiBuff',               // Buff multiple creatures
+      'teamBuff',                // Buff all creatures (Ancient Awakening)
       'grantShimmer',            // Makes creature unblockable (Shimmer Strike)
       'grantHaste',              // Allows immediate attack (Blitz Formation)
       'preventCombatDamage',     // Prevents damage this turn
-      'preventDamageToAttackers', // Combat-specific
+      'preventDamageToAttackers', // Combat-specific (old)
+      'grantHidden',             // Prevents combat damage to attackers (Hidden Ambush)
     ].includes(effect.type);
   });
 }
@@ -577,6 +604,71 @@ function shouldSaveForMain2(card, playerIndex, game) {
   }
   
   return false;
+}
+
+// ============================================================================
+// SPELL UTILITY CHECK
+// ============================================================================
+
+function isSpellUseful(card, player, game) {
+  // Check if a spell would have any useful effect
+  if (!card.effects) return true; // No effects to check
+  
+  const aiIndex = 1;
+  const opponentIndex = 0;
+  const opponent = game.players[opponentIndex];
+  
+  for (const effect of card.effects) {
+    switch (effect.type) {
+      case 'preventDamageToAttackers':
+      case 'grantHidden':
+        // CRITICAL FIX: Only useful if we have creatures that can attack
+        // Check battlefield exists and has creatures
+        if (!player.battlefield || player.battlefield.length === 0) {
+          return false;
+        }
+        
+        // Check if we have any creatures at all
+        const hasAnyCreatures = player.battlefield.some(c => c.type === 'creature');
+        if (!hasAnyCreatures) {
+          return false;
+        }
+        
+        // Then check if any can attack (not summoning sick, not frozen)
+        const canAttack = player.battlefield.some(c => 
+          c.type === 'creature' && !c.summoningSickness && !(c.frozenTurns > 0)
+        );
+        if (!canAttack) {
+          return false;
+        }
+        break;
+        
+      case 'revive':
+        // CRITICAL FIX: Only useful if graveyard has creatures
+        const hasCreaturesInGraveyard = player.graveyard?.some(c => c.type === 'creature');
+        if (!hasCreaturesInGraveyard) return false;
+        break;
+        
+      case 'buff':
+      case 'temporaryBuff':
+      case 'multiBuff':
+      case 'teamBuff':
+        // Only useful if we have creatures to buff
+        const hasCreatures = player.battlefield.some(c => c.type === 'creature');
+        if (!hasCreatures) return false;
+        break;
+        
+      case 'heal':
+        // Only useful if we have damaged creatures
+        const hasDamagedCreatures = player.battlefield.some(c => 
+          c.type === 'creature' && (c.damageMarked || 0) > 0
+        );
+        if (!hasDamagedCreatures) return false;
+        break;
+    }
+  }
+  
+  return true; // Spell is useful
 }
 
 // ============================================================================
@@ -674,6 +766,11 @@ function aiPlayTurnStep(aiPlayer, phase) {
       return true;
     }
     
+    // CRITICAL FIX: Check if spell would have any effect before playing it
+    if (card.type === 'spell' && !isSpellUseful(card, aiPlayer, game)) {
+      continue; // Don't waste this spell
+    }
+    
     const requirements = helpers.computeRequirements(card);
     const chosenTargets = {};
     let requirementsSatisfied = true;
@@ -698,6 +795,18 @@ function aiPlayTurnStep(aiPlayer, phase) {
   return false;
 }
 
+// Helper: Calculate total available damage from all playable damage spells in hand
+function getTotalAvailableDamage(player, game) {
+  return player.hand.reduce((total, card) => {
+    if (!helpers.canPlayCard(card, 1, game)) return total;
+    const damageEffect = card.effects?.find(e => e.type === 'damage');
+    if (damageEffect && damageEffect.target !== 'opponent' && damageEffect.target !== 'player') {
+      return total + (damageEffect.amount || 0);
+    }
+    return total;
+  }, 0);
+}
+
 function pickTargetsForAI(requirement, controllerIndex) {
   const game = state.game;
   const controller = game.players[controllerIndex];
@@ -705,7 +814,7 @@ function pickTargetsForAI(requirement, controllerIndex) {
   const opponent = game.players[opponentIndex];
   const desired = requirement.count ?? 1;
 
-  const selectCreatures = (creatures, ownerIndex, count, sortBy = 'attack') => {
+  const selectCreatures = (creatures, ownerIndex, count, sortBy = 'attack', allowBluffing = true) => {
     let sorted = creatures.filter((c) => c.type === 'creature');
     
     if (sortBy === 'attack') {
@@ -728,8 +837,9 @@ function pickTargetsForAI(requirement, controllerIndex) {
       );
     }
     
-    // Bluffing: Sometimes pick random targets
-    if (shouldBluff() && sorted.length > 1) {
+    // CRITICAL FIX: Don't bluff when targeting removal spells
+    // Bluffing: Sometimes pick random targets (only for buffs, not removal)
+    if (allowBluffing && shouldBluff() && sorted.length > 1) {
       const randomIndex = Math.floor(Math.random() * Math.min(3, sorted.length));
       const randomPick = sorted.splice(randomIndex, 1);
       sorted.unshift(...randomPick);
@@ -744,8 +854,45 @@ function pickTargetsForAI(requirement, controllerIndex) {
     return selectCreatures(controller.battlefield, controllerIndex, desired, 'attack');
   }
   if (requirement.target === 'enemy-creature') {
-    if (requirement.effect?.type === 'damage' || requirement.effect?.type === 'bounce' || requirement.effect?.type === 'freeze') {
-      return selectCreatures(opponent.battlefield, opponentIndex, desired, 'threat');
+    // CRITICAL FIX: Damage spells should prioritize creatures they can KILL
+    if (requirement.effect?.type === 'damage') {
+      const damageAmount = requirement.effect.amount || 0;
+      
+      // Check for creatures we can kill with THIS spell
+      const killableNow = opponent.battlefield.filter(c => {
+        if (c.type !== 'creature') return false;
+        const stats = getCreatureStats(c, opponentIndex, game);
+        const hp = stats.toughness - (c.damageMarked || 0);
+        return damageAmount >= hp;
+      });
+      
+      if (killableNow.length > 0) {
+        // We can kill creatures - target the highest threat we can kill
+        return selectCreatures(killableNow, opponentIndex, desired, 'threat', false);
+      }
+      
+      // CRITICAL: Check if we can combo-kill with other damage spells in hand
+      const totalDamage = getTotalAvailableDamage(controller, game);
+      const killableWithCombo = opponent.battlefield.filter(c => {
+        if (c.type !== 'creature') return false;
+        const stats = getCreatureStats(c, opponentIndex, game);
+        const hp = stats.toughness - (c.damageMarked || 0);
+        // Can we kill this with all our damage combined?
+        return totalDamage >= hp && damageAmount < hp;
+      });
+      
+      if (killableWithCombo.length > 0) {
+        // We can combo-kill - target highest threat we can eventually kill
+        return selectCreatures(killableWithCombo, opponentIndex, desired, 'threat', false);
+      }
+      
+      // Can't kill anything even with combos - don't waste the spell
+      return [];
+    }
+    
+    if (requirement.effect?.type === 'bounce' || requirement.effect?.type === 'freeze') {
+      // Bounce/freeze should target highest threat
+      return selectCreatures(opponent.battlefield, opponentIndex, desired, 'threat', false);
     }
     return selectCreatures(opponent.battlefield, opponentIndex, desired, 'attack');
   }
@@ -753,17 +900,92 @@ function pickTargetsForAI(requirement, controllerIndex) {
     if (['temporaryBuff', 'buff', 'heal', 'grantHaste', 'multiBuff', 'grantShimmer'].includes(requirement.effect.type)) {
       return selectCreatures(controller.battlefield, controllerIndex, desired, 'attack');
     }
-    const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired, 'threat');
-    if (enemySelection.length) {
-      return enemySelection;
+    
+    // CRITICAL FIX: Damage spells should only target creatures they can KILL
+    if (requirement.effect?.type === 'damage') {
+      const damageAmount = requirement.effect.amount || 0;
+      
+      // Check for creatures we can kill with THIS spell
+      const killableNow = opponent.battlefield.filter(c => {
+        if (c.type !== 'creature') return false;
+        const stats = getCreatureStats(c, opponentIndex, game);
+        const hp = stats.toughness - (c.damageMarked || 0);
+        return damageAmount >= hp;
+      });
+      
+      if (killableNow.length > 0) {
+        return selectCreatures(killableNow, opponentIndex, desired, 'threat', false);
+      }
+      
+      // Check if we can combo-kill with other damage spells
+      const totalDamage = getTotalAvailableDamage(controller, game);
+      const killableWithCombo = opponent.battlefield.filter(c => {
+        if (c.type !== 'creature') return false;
+        const stats = getCreatureStats(c, opponentIndex, game);
+        const hp = stats.toughness - (c.damageMarked || 0);
+        return totalDamage >= hp && damageAmount < hp;
+      });
+      
+      if (killableWithCombo.length > 0) {
+        return selectCreatures(killableWithCombo, opponentIndex, desired, 'threat', false);
+      }
+      
+      // Can't kill any enemy creatures - don't waste on our own
+      return [];
     }
+    
+    // Bounce/freeze should target highest threat
+    if (requirement.effect?.type === 'bounce' || requirement.effect?.type === 'freeze') {
+      const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired, 'threat', false);
+      if (enemySelection.length) {
+        return enemySelection;
+      }
+    }
+    
     return selectCreatures(controller.battlefield, controllerIndex, desired, 'weakest');
   }
   if (requirement.target === 'creature') {
-    const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired, 'threat');
-    if (enemySelection.length) {
-      return enemySelection;
+    // CRITICAL FIX: Damage spells should only target creatures they can KILL
+    if (requirement.effect?.type === 'damage') {
+      const damageAmount = requirement.effect.amount || 0;
+      
+      // Check for creatures we can kill with THIS spell
+      const killableNow = opponent.battlefield.filter(c => {
+        if (c.type !== 'creature') return false;
+        const stats = getCreatureStats(c, opponentIndex, game);
+        const hp = stats.toughness - (c.damageMarked || 0);
+        return damageAmount >= hp;
+      });
+      
+      if (killableNow.length > 0) {
+        return selectCreatures(killableNow, opponentIndex, desired, 'threat', false);
+      }
+      
+      // Check if we can combo-kill with other damage spells
+      const totalDamage = getTotalAvailableDamage(controller, game);
+      const killableWithCombo = opponent.battlefield.filter(c => {
+        if (c.type !== 'creature') return false;
+        const stats = getCreatureStats(c, opponentIndex, game);
+        const hp = stats.toughness - (c.damageMarked || 0);
+        return totalDamage >= hp && damageAmount < hp;
+      });
+      
+      if (killableWithCombo.length > 0) {
+        return selectCreatures(killableWithCombo, opponentIndex, desired, 'threat', false);
+      }
+      
+      // Can't kill anything - don't waste the spell
+      return [];
     }
+    
+    // Bounce/freeze should target highest threat
+    if (requirement.effect?.type === 'bounce' || requirement.effect?.type === 'freeze') {
+      const enemySelection = selectCreatures(opponent.battlefield, opponentIndex, desired, 'threat', false);
+      if (enemySelection.length) {
+        return enemySelection;
+      }
+    }
+    
     return selectCreatures(controller.battlefield, controllerIndex, desired, 'weakest');
   }
   if (requirement.target === 'any') {
@@ -771,6 +993,17 @@ function pickTargetsForAI(requirement, controllerIndex) {
     if (requirement.effect?.type === 'damage' && requirement.allowPlayers) {
       const damageAmount = requirement.effect.amount || 0;
       const opponentCreatures = opponent.battlefield.filter(c => c.type === 'creature');
+      
+      // CRITICAL FIX: Check for LETHAL first - always go for the win!
+      if (damageAmount >= opponent.life) {
+        return [{ type: 'player', controller: opponentIndex }];
+      }
+      
+      // CRITICAL FIX: Check if we can get opponent into lethal range (very low life)
+      if (opponent.life - damageAmount <= 3) {
+        // Getting them to 3 or less life is very valuable (burn range)
+        return [{ type: 'player', controller: opponentIndex }];
+      }
       
       // Find creatures we can actually kill
       const killableCreatures = opponentCreatures.filter(creature => {
@@ -871,14 +1104,42 @@ function aiDeclareAttacks() {
       return true;
     }
     
-    // If opponent has no blockers, attack with everything
+    // CRITICAL FIX: If opponent has no blockers, ALWAYS attack with everything
+    // This is guaranteed damage - never pass it up
     if (potentialBlockers.length === 0) {
       return true;
     }
     
-    // Bluffing: Sometimes attack/don't attack unexpectedly
-    if (shouldBluff()) {
-      return Math.random() > 0.3;
+    // CRITICAL FIX: Board control - attack if we can kill their blockers
+    // Check if this creature can kill any of their blockers
+    const canKillBlocker = potentialBlockers.some(blocker => {
+      const blockerStats = getCreatureStats(blocker, opponentIndex, game);
+      const blockerHP = blockerStats.toughness - (blocker.damageMarked || 0);
+      return stats.attack >= blockerHP;
+    });
+    
+    // If we can kill a blocker (even if we die), that's good board control
+    if (canKillBlocker) {
+      const wouldDie = potentialBlockers.some(blocker => {
+        const blockerStats = getCreatureStats(blocker, opponentIndex, game);
+        return blockerStats.attack >= stats.toughness;
+      });
+      
+      // Attack if: we survive OR it's a favorable/even trade
+      if (!wouldDie) {
+        return true; // We survive and kill their creature - always attack
+      }
+      
+      // Both die - check if it's a good trade
+      const myThreat = getCreatureThreatLevel(creature, aiIndex, game);
+      const bestBlockerThreat = Math.max(...potentialBlockers.map(b => 
+        getCreatureThreatLevel(b, opponentIndex, game)
+      ));
+      
+      // Attack if their best blocker is more valuable than us (good trade)
+      if (bestBlockerThreat >= myThreat * 0.8) {
+        return true; // Even or favorable trade
+      }
     }
     
     // CRITICAL: Numerical advantage - if we have more attackers than they have blockers
@@ -998,6 +1259,16 @@ function aiDeclareAttacks() {
       const iWouldDie = stats.toughness <= blockerStats.attack;
       const blockerWouldDie = blockerStats.toughness <= stats.attack;
       
+      // CRITICAL FIX: If we survive and kill their blocker, ALWAYS attack
+      if (!iWouldDie && blockerWouldDie) {
+        return true; // We win the trade - always attack
+      }
+      
+      // CRITICAL FIX: If we survive and they survive, still attack (we deal damage)
+      if (!iWouldDie && !blockerWouldDie) {
+        return true; // We survive and deal damage - always attack
+      }
+      
       if (iWouldDie && blockerWouldDie) {
         // It's a trade - only attack if it's favorable
         // Don't trade a valuable creature for a weaker one
@@ -1005,10 +1276,7 @@ function aiDeclareAttacks() {
           // Our creature is much better - don't trade
           return false;
         }
-      }
-      
-      // Would trade favorably or win - attack based on deck aggression
-      if (Math.random() < attackAggression) {
+        // Trade is acceptable - attack
         return true;
       }
     }
@@ -1085,11 +1353,16 @@ export function assignAIBlocks() {
   const isCritical = totalIncomingDamage >= aiLife * 0.5;
   const isVeryLowLife = aiLife <= 8; // Desperate situation - prioritize survival
   
+  // CRITICAL FIX: If we're at low life and taking ANY damage, be very defensive
+  // Match the card-playing desperate threshold (12 life)
+  const isDesperate = aiLife <= 12 && totalIncomingDamage > 0;
+  
   // Evaluate each potential block
   const blockOptions = [];
   
   attackers.forEach(attacker => {
     const attackerStats = getCreatureStats(attacker.creature, attacker.controller, game);
+    const isLargeThreat = attackerStats.attack >= 5;
     
     defenders.forEach(defender => {
       const defenderStats = getCreatureStats(defender, aiIndex, game);
@@ -1104,16 +1377,41 @@ export function assignAIBlocks() {
       
       let blockValue = attackerStats.attack; // Damage prevented
       
+      // CRITICAL FIX: Board control - heavily prioritize killing attackers
+      if (attackerDies) {
+        blockValue += attackerThreat * 2; // Killing their creature is very valuable
+      }
+      
+      // CRITICAL FIX: Heavily prioritize blocking large threats (5+ damage)
+      if (isLargeThreat) {
+        blockValue += 15; // Big bonus for blocking large threats
+        // Chump blocking is acceptable for large threats
+        if (defenderDies && !attackerDies) {
+          // Chump block - sacrifice small creature to block big threat
+          // This is good if our creature is small
+          if (defenderThreat < attackerStats.attack) {
+            blockValue += 5; // Chump blocking large threats is valuable
+          }
+        }
+      }
+      
       // Adjust value based on trades
       if (defenderDies && attackerDies) {
         // Even trade - both die
         blockValue += attackerThreat - defenderThreat;
+        // CRITICAL: Favor trades that kill their creature
+        blockValue += 5; // Bonus for board control
       } else if (defenderDies && !attackerDies) {
         // Bad trade - we lose creature for nothing
-        blockValue -= defenderThreat * 1.5;
+        // But if it's a chump block on a large threat, it's acceptable
+        if (!isLargeThreat) {
+          blockValue -= defenderThreat * 1.5;
+        }
       } else if (!defenderDies && attackerDies) {
         // Great trade - we keep our creature and kill theirs
         blockValue += attackerThreat + defenderThreat * 0.5;
+        // CRITICAL: This is the best outcome - heavily favor it
+        blockValue += 10; // Big bonus for winning the trade
       } else {
         // Both survive - still good to prevent damage
         blockValue += attackerStats.attack * 0.8; // Damage prevention has value
@@ -1125,6 +1423,7 @@ export function assignAIBlocks() {
         value: blockValue,
         defenderDies,
         attackerDies,
+        isLargeThreat,
       });
     });
   });
@@ -1142,8 +1441,9 @@ export function assignAIBlocks() {
     return stats.attack >= 5; // Large creatures that deal significant damage
   });
   
-  if (isLethal) {
-    // Block everything we can to survive
+  if (isLethal || isDesperate) {
+    // CRITICAL FIX: Block EVERYTHING when facing lethal or desperate
+    // This is life or death - use all blockers
     blocksToMake = Math.min(attackers.length, defenders.length);
   } else if (isVeryLowLife && totalIncomingDamage >= 3) {
     // CRITICAL: Very low life - every point of damage matters
@@ -1156,10 +1456,13 @@ export function assignAIBlocks() {
     // But at low life, block more aggressively
     const criticalBlockAggression = isVeryLowLife ? Math.min(1.0, blockAggression + 0.3) : blockAggression;
     blocksToMake = Math.ceil(attackers.length * criticalBlockAggression);
-  } else if (largeThreats.length > 0 && totalIncomingDamage >= aiLife * 0.3) {
-    // Large threats and taking significant damage - chump block to preserve life
-    // Block at least the large threats
-    blocksToMake = Math.max(largeThreats.length, Math.ceil(attackers.length * blockAggression));
+  } else if (largeThreats.length > 0) {
+    // CRITICAL FIX: Always block large threats (5+ damage) when possible
+    // Chump blocking is acceptable to prevent massive damage
+    // Block ALL large threats plus some others based on strategy
+    const largeThreatsToBlock = Math.min(largeThreats.length, defenders.length);
+    const otherBlocks = Math.ceil((attackers.length - largeThreats.length) * blockAggression);
+    blocksToMake = Math.min(defenders.length, largeThreatsToBlock + otherBlocks);
   } else {
     // Make favorable blocks based on deck strategy
     // Aggressive decks only block the best trades, defensive decks block more
@@ -1176,30 +1479,59 @@ export function assignAIBlocks() {
   }
   
   // Bluffing: Sometimes block more or less
-  // But don't bluff when life is critical
-  if (shouldBluff() && !isVeryLowLife && !isLethal) {
+  // CRITICAL FIX: NEVER bluff when life is critical or desperate
+  if (shouldBluff() && !isVeryLowLife && !isLethal && !isDesperate) {
     const variance = Math.random() < 0.5 ? -1 : 1;
     blocksToMake = Math.max(0, Math.min(defenders.length, blocksToMake + variance));
   }
   
   // Assign blocks
   const usedDefenders = new Set();
+  const usedAttackers = new Set();
   let blocksAssigned = 0;
   
-  for (const option of blockOptions) {
-    if (blocksAssigned >= blocksToMake) break;
-    if (usedDefenders.has(option.defender.instanceId)) continue;
-    
-    game.blocking.assignments[option.attacker.instanceId] = option.defender;
-    usedDefenders.add(option.defender.instanceId);
-    blocksAssigned++;
-    
-    helpers.addLog([
-      cardSegment(option.defender),
-      textSegment(' blocks '),
-      cardSegment(option.attacker),
-      textSegment('.'),
-    ]);
+  // CRITICAL FIX: When facing lethal, ensure we block as many attackers as possible
+  // Don't just go by sorted value - block ALL attackers we can
+  if (isLethal || isDesperate) {
+    // Block each attacker with any available defender
+    for (const attacker of attackers) {
+      if (blocksAssigned >= blocksToMake) break;
+      
+      // Find any available defender for this attacker
+      const availableDefender = defenders.find(d => !usedDefenders.has(d.instanceId));
+      if (availableDefender) {
+        game.blocking.assignments[attacker.creature.instanceId] = availableDefender;
+        usedDefenders.add(availableDefender.instanceId);
+        usedAttackers.add(attacker.creature.instanceId);
+        blocksAssigned++;
+        
+        helpers.addLog([
+          cardSegment(availableDefender),
+          textSegment(' blocks '),
+          cardSegment(attacker.creature),
+          textSegment('.'),
+        ]);
+      }
+    }
+  } else {
+    // Normal blocking - use sorted block options
+    for (const option of blockOptions) {
+      if (blocksAssigned >= blocksToMake) break;
+      if (usedDefenders.has(option.defender.instanceId)) continue;
+      if (usedAttackers.has(option.attacker.instanceId)) continue;
+      
+      game.blocking.assignments[option.attacker.instanceId] = option.defender;
+      usedDefenders.add(option.defender.instanceId);
+      usedAttackers.add(option.attacker.instanceId);
+      blocksAssigned++;
+      
+      helpers.addLog([
+        cardSegment(option.defender),
+        textSegment(' blocks '),
+        cardSegment(option.attacker),
+        textSegment('.'),
+      ]);
+    }
   }
   
   // Log if AI chose not to block at all

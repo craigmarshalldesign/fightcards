@@ -1,4 +1,4 @@
-import { getCreatureStats, getCounterTotals, hasShimmer } from '../../../game/creatures.js';
+import { getCreatureStats, getCounterTotals, hasShimmer, hasHidden, hasStomp } from '../../../game/creatures.js';
 import { canPlayCard } from '../../../game/core/index.js';
 import { escapeHtml, formatText, sanitizeClass, getPassivePreviewInfo } from './shared.js';
 import { getLocalSeatIndex } from '../../../multiplayer/runtime.js';
@@ -22,9 +22,13 @@ export function renderStatusChips(card, controllerIndex, game) {
   const abilities = card.abilities || {};
   const hasHaste = Boolean(abilities.haste || (inBattlefield && card.temporaryHaste));
   const shimmerActive = inBattlefield ? hasShimmer(card) : Boolean(abilities.shimmer);
+  const hiddenActive = inBattlefield ? hasHidden(card) : false;
+  const stompActive = inBattlefield ? hasStomp(card) : Boolean(abilities.stomp);
 
   if (hasHaste) chips.push({ label: 'Haste', variant: 'haste' });
   if (shimmerActive) chips.push({ label: 'Shimmer', variant: 'shimmer' });
+  if (stompActive) chips.push({ label: 'Stomp', variant: 'stomp' });
+  if (hiddenActive) chips.push({ label: 'Hidden', variant: 'hidden' });
   if (inBattlefield && card.frozenTurns) chips.push({ label: 'Frozen', variant: 'frozen' });
   if (inBattlefield && game && game.currentPlayer === controllerIndex && card.summoningSickness && !hasHaste) {
     chips.push({ label: 'Summoning', variant: 'sickness' });

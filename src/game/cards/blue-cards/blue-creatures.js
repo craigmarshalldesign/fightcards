@@ -36,7 +36,7 @@ export const blueCreatures = [
     cost: 3,
     color: 'blue',
     attack: 2,
-    toughness: 5,
+    toughness: 4,
     text: 'Bulky defender to hold the line.',
   },
   {
@@ -63,7 +63,7 @@ export const blueCreatures = [
     type: 'creature',
     cost: 4,
     color: 'blue',
-    attack: 3,
+    attack: 2,
     toughness: 3,
     passive: {
       type: 'static',
@@ -129,8 +129,8 @@ export const blueCreatures = [
     type: 'creature',
     cost: 6,
     color: 'blue',
-    attack: 5,
-    toughness: 6,
+    attack: 4,
+    toughness: 5,
     passive: {
       type: 'onEnter',
       description: "Return up to two enemy creatures to their owner's hand.",

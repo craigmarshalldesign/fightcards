@@ -1,5 +1,5 @@
 import { getLocalSeatIndex } from '../../../multiplayer/runtime.js';
-import { getCreatureStats } from '../../../game/creatures.js';
+import { getCreatureStats, hasStomp } from '../../../game/creatures.js';
 import { escapeHtml } from './shared.js';
 
 function renderStatLine(stats) {
@@ -52,7 +52,11 @@ function renderBlockedCombat({ attackerEntry, blocker, game, defendingIndex, def
   const remainingBlockerLife = Math.max(blockerLife - incomingToBlocker, 0);
   const blockerSurvives = remainingBlockerLife > 0;
 
-  const defenderDamage = 0;
+  // CRITICAL: Calculate Stomp (trample) damage
+  let defenderDamage = 0;
+  if (hasStomp(attackerEntry.creature) && attackerAttack > blockerLife) {
+    defenderDamage = attackerAttack - blockerLife;
+  }
   const damageChipClass = defenderDamage === 0 ? 'damage-chip defender zero' : 'damage-chip defender';
 
   return `

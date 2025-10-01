@@ -100,7 +100,7 @@ export const redCreatures = [
     type: 'creature',
     cost: 3,
     color: 'red',
-    attack: 2,
+    attack: 3,
     toughness: 3,
     passive: {
       type: 'onAttack',
@@ -116,7 +116,7 @@ export const redCreatures = [
     cost: 3,
     color: 'red',
     attack: 2,
-    toughness: 2,
+    toughness: 3,
     passive: {
       type: 'static',
       description: 'Other friendly creatures get +1 attack.',
@@ -131,7 +131,7 @@ export const redCreatures = [
     cost: 6,
     color: 'red',
     attack: 7,
-    toughness: 5,
+    toughness: 4,
     passive: {
       type: 'onEnter',
       description: 'Deal 3 damage to any target when it enters.',

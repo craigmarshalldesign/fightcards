@@ -38,6 +38,29 @@ export function hasShimmer(creature) {
   return Boolean(creature.buffs?.some((buff) => buff?.shimmer));
 }
 
+export function hasHidden(creature) {
+  if (!creature) return false;
+  return Boolean(creature.buffs?.some((buff) => buff?.hidden));
+}
+
+export function hasStomp(creature) {
+  if (!creature) return false;
+  if (creature.abilities?.stomp) return true;
+  return Boolean(creature.buffs?.some((buff) => buff?.stomp));
+}
+
+export function grantStomp(creature, duration = 'turn') {
+  if (!creature) return;
+  if (duration === 'permanent') {
+    creature.abilities = creature.abilities || {};
+    creature.abilities.stomp = true;
+    return;
+  }
+  creature.buffs = creature.buffs || [];
+  const expires = duration === 'turn' ? 'endOfTurn' : duration;
+  creature.buffs.push({ attack: 0, toughness: 0, stomp: true, duration: expires, name: 'Stomp', color: '#22c55e' });
+}
+
 export function grantShimmer(creature, duration = 'turn') {
   if (!creature) return;
   if (duration === 'permanent') {

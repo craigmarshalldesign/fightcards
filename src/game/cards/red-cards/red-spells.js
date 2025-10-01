@@ -60,7 +60,7 @@ export const redSpells = [
     name: 'Phoenix Call',
     type: 'spell',
     color: 'red',
-    cost: 4,
+    cost: 3,
     text: 'Create a 3/2 Phoenix token with haste.',
     effects: [
       {

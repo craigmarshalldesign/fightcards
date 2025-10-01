@@ -43,9 +43,10 @@ export const greenSpells = [
     type: 'spell',
     color: 'green',
     cost: 3,
-    text: 'Give a creature +3/+3 until end of turn.',
+    text: 'Give a creature +3/+3 and Stomp until end of turn.',
     effects: [
       { type: 'temporaryBuff', target: 'friendly-creature', attack: 3, toughness: 3 },
+      { type: 'grantStomp', target: 'friendly-creature', duration: 'turn' },
     ],
   },
   {
@@ -54,8 +55,8 @@ export const greenSpells = [
     type: 'spell',
     color: 'green',
     cost: 2,
-    text: 'Prevent combat damage to your attacking creatures this turn.',
-    effects: [{ type: 'preventDamageToAttackers' }],
+    text: 'Give all your creatures Hidden until end of turn. (They take no combat damage.)',
+    effects: [{ type: 'grantHidden' }],
   },
   {
     id: 'green_spell_7',
@@ -75,16 +76,17 @@ export const greenSpells = [
     type: 'spell',
     color: 'green',
     cost: 4,
-    text: 'Create two 3/3 Beast tokens.',
+    text: 'Create two 2/3 Beast tokens with Stomp.',
     effects: [
       {
         type: 'createMultipleTokens',
         count: 2,
         token: {
           name: 'Beast Token',
-          attack: 3,
+          attack: 2,
           toughness: 3,
-          text: '3/3 Beast.',
+          abilities: { stomp: true },
+          text: '2/3 Beast with Stomp.',
         },
       },
     ],
@@ -107,7 +109,10 @@ export const greenSpells = [
     type: 'spell',
     color: 'green',
     cost: 5,
-    text: 'Give all friendly creatures +2/+2.',
-    effects: [{ type: 'teamBuff', attack: 2, toughness: 2 }],
+    text: 'Give all friendly creatures +1/+0 and Stomp.',
+    effects: [
+      { type: 'teamBuff', attack: 1, toughness: 0 },
+      { type: 'grantStompToAll' },
+    ],
   },
 ];

@@ -5,6 +5,8 @@ import {
   dealDamageToCreature,
   dealDamageToPlayer,
   getCreatureStats,
+  hasHidden,
+  hasStomp,
 } from '../creatures.js';
 import { getDefendingPlayerIndex } from './helpers.js';
 import {
@@ -70,7 +72,18 @@ export function resolveCombat() {
       return;
     }
     const blockerStats = getCreatureStats(blocker, defendingIndex, game);
-    const preventBlockerDamage = game.preventDamageToAttackersFor === attacker.controller;
+    const blockerHP = blockerStats.toughness - (blocker.damageMarked || 0);
+    const attackerHasStomp = hasStomp(attacker.creature);
+    
+    // Calculate Stomp (trample) damage
+    let stompDamage = 0;
+    if (attackerHasStomp && attackerStats.attack > blockerHP) {
+      stompDamage = attackerStats.attack - blockerHP;
+    }
+    
+    // Check if attacker has Hidden buff (prevents combat damage)
+    const attackerHasHidden = hasHidden(attacker.creature);
+    const preventBlockerDamage = game.preventDamageToAttackersFor === attacker.controller || attackerHasHidden;
     combatLog.push({
       type: 'combat',
       attacker: { id: attacker.creature.id, instanceId: attacker.creature.instanceId },
@@ -78,6 +91,8 @@ export function resolveCombat() {
       controller: attacker.controller,
       damageToBlocker: attackerStats.attack,
       damageToAttacker: preventBlockerDamage ? 0 : blockerStats.attack,
+      stompDamage: stompDamage,
+      targetPlayer: stompDamage > 0 ? defendingIndex : undefined,
     });
   });
   
@@ -105,6 +120,15 @@ export function resolveCombat() {
         return;
       }
       const blockerStats = getCreatureStats(blocker, defendingIndex, game);
+      const blockerHP = blockerStats.toughness - (blocker.damageMarked || 0);
+      const attackerHasStomp = hasStomp(attacker.creature);
+      
+      // Calculate Stomp (trample) damage
+      let stompDamage = 0;
+      if (attackerHasStomp && attackerStats.attack > blockerHP) {
+        stompDamage = attackerStats.attack - blockerHP;
+      }
+      
       if (attackerStats.attack > 0) {
         addLog([
           cardSegment(attacker.creature),
@@ -116,7 +140,21 @@ export function resolveCombat() {
         ]);
       }
       dealDamageToCreature(blocker, defendingIndex, attackerStats.attack);
-      const preventBlockerDamage = game.preventDamageToAttackersFor === attacker.controller;
+      
+      // Apply Stomp damage to defending player
+      if (stompDamage > 0) {
+        addLog([
+          cardSegment(attacker.creature),
+          textSegment(' tramples over for '),
+          damageSegment(stompDamage),
+          textSegment(' damage!'),
+        ]);
+        dealDamageToPlayer(defendingIndex, stompDamage);
+      }
+      
+      // Check if attacker has Hidden buff (prevents combat damage)
+      const attackerHasHidden = hasHidden(attacker.creature);
+      const preventBlockerDamage = game.preventDamageToAttackersFor === attacker.controller || attackerHasHidden;
       if (!preventBlockerDamage && blockerStats.attack > 0) {
         addLog([
           cardSegment(blocker),
@@ -125,6 +163,11 @@ export function resolveCombat() {
           textSegment(' damage to '),
           cardSegment(attacker.creature),
           textSegment('.'),
+        ]);
+      } else if (attackerHasHidden && blockerStats.attack > 0) {
+        addLog([
+          cardSegment(attacker.creature),
+          textSegment(' is Hidden and takes no damage!'),
         ]);
       }
       dealDamageToCreature(

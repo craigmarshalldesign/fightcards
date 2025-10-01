@@ -1543,6 +1543,18 @@ input {
   border-color: rgba(147, 197, 253, 0.45);
 }
 
+.status-chip.hidden {
+  color: #90EE90;
+  background: rgba(144, 238, 144, 0.15);
+  border-color: rgba(144, 238, 144, 0.45);
+}
+
+.status-chip.stomp {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
 .status-chip.sickness {
   color: #94a3b8;
   background: rgba(148, 163, 184, 0.14);
