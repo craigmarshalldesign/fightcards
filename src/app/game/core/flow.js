@@ -295,6 +295,7 @@ export function handlePassive(card, controllerIndex, trigger) {
       const isHuman = !player.isAI;
       let needsSelection = false;
       let hasAvailableTargets = false;
+      const forceSelection = isOptional === true;
 
       requirements.forEach((requirement) => {
         const validTargets = getValidTargetsForRequirement(requirement, controllerIndex, card);
@@ -311,7 +312,8 @@ export function handlePassive(card, controllerIndex, trigger) {
         const playerCanChoose =
           requirement.target !== 'any' && isHuman && uniqueChoices && requiredCount > 0;
 
-        if (isHuman && (requirement.allowLess || playerCanChoose)) {
+        // CRITICAL: For optional triggers, always prompt the player instead of auto-selecting
+        if (forceSelection || (isHuman && (requirement.allowLess || playerCanChoose))) {
           needsSelection = true;
           return;
         }

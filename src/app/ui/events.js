@@ -469,7 +469,10 @@ function positionTargetLines(root) {
   if (isAbility && state.game?.pendingAction?.card?.instanceId) {
     // Find the creature card that owns this ability
     const creatureId = state.game.pendingAction.card.instanceId;
-    const sourceCreature = root.querySelector(`[data-card="${creatureId}"][data-controller="0"]`);
+    const controllerIndex = state.game.pendingAction.controller;
+    const sourceCreature = root.querySelector(
+      `[data-card="${creatureId}"][data-controller="${controllerIndex}"]`
+    );
     if (sourceCreature) {
       const sourceRect = sourceCreature.getBoundingClientRect();
       startX = sourceRect.left + sourceRect.width / 2 - containerRect.left;

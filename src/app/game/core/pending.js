@@ -122,6 +122,8 @@ export function selectTargetForPending(target) {
     return false;
   }
   pending.selectedTargets.push(target);
+  // Keep a live preview so both players see an arrow immediately
+  pending.previewTargets = pending.selectedTargets.map((t) => ({ ...t }));
   
   // CRITICAL: In multiplayer, broadcast target selection so opponent can see the targeting arrow
   if (isMultiplayerMatchActive()) {

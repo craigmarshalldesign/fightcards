@@ -933,15 +933,28 @@ function rebuildPendingFromEvent(game, payload) {
   
   // Log the action for the remote player
   if (player) {
-    const actionText = payload.kind === 'ability' ? ' activates ' : ' prepares ';
-    const suffix = payload.kind === 'ability' ? `'s ${fullCard.activated?.name || 'ability'}` : '';
-    addLog([
-      playerSegment(player), 
-      textSegment(actionText), 
-      cardSegment(fullCard), 
-      textSegment(suffix + '.'),
-    ], undefined, payload.kind === 'spell' || payload.kind === 'ability' ? 'spell' : undefined);
+    const localSeat = getLocalSeatIndex();
+    const isLocalController = payload.controller === localSeat;
+    if (payload.kind === 'trigger' && !isLocalController && fullCard?.passive?.description) {
+      // Opponent view: show trigger description in Spell Log
+      addLog([
+        cardSegment(fullCard),
+        textSegment(' triggers: '),
+        textSegment(fullCard.passive.description),
+      ], undefined, 'spell');
+    } else {
+      const actionText = payload.kind === 'ability' ? ' activates ' : ' prepares ';
+      const suffix = payload.kind === 'ability' ? `'s ${fullCard.activated?.name || 'ability'}` : '';
+      addLog([
+        playerSegment(player), 
+        textSegment(actionText), 
+        cardSegment(fullCard), 
+        textSegment(suffix + '.'),
+      ], undefined, payload.kind === 'spell' || payload.kind === 'ability' ? 'spell' : undefined);
+    }
   }
+  
+  requestRender();
 }
 
 function updatePendingFromEvent(game, payload) {
@@ -950,16 +963,46 @@ function updatePendingFromEvent(game, payload) {
     return;
   }
   game.pendingAction.requirementIndex = payload.requirementIndex ?? game.pendingAction.requirementIndex;
+  // Reconstruct chosenTargets to full battlefield creatures for accurate UI positioning
   if (payload.chosenTargets) {
-    game.pendingAction.chosenTargets = payload.chosenTargets;
+    const reconstructed = {};
+    Object.keys(payload.chosenTargets).forEach((effectIndex) => {
+      const targets = payload.chosenTargets[effectIndex] || [];
+      reconstructed[effectIndex] = targets.map((t) => {
+        if (t?.type === 'player') return t;
+        if (t?.creature?.instanceId != null) {
+          const targetPlayer = game.players[t.controller];
+          const fullCreature = targetPlayer?.battlefield.find(
+            (c) => c.instanceId === t.creature.instanceId,
+          );
+          return fullCreature ? { ...t, creature: fullCreature } : t;
+        }
+        return t;
+      });
+    });
+    game.pendingAction.chosenTargets = reconstructed;
   }
-  // CRITICAL: Update selectedTargets so opponent can see real-time targeting arrows
+  // CRITICAL: Update selectedTargets so opponent AND local see real-time targeting arrows
   if (payload.selectedTargets !== undefined) {
-    game.pendingAction.selectedTargets = payload.selectedTargets;
+    const reconstructedSelected = (payload.selectedTargets || []).map((t) => {
+      if (t?.type === 'player') return t;
+      if (t?.creature?.instanceId != null) {
+        const targetPlayer = game.players[t.controller];
+        const fullCreature = targetPlayer?.battlefield.find(
+          (c) => c.instanceId === t.creature.instanceId,
+        );
+        return fullCreature ? { ...t, creature: fullCreature } : t;
+      }
+      return t;
+    });
+    game.pendingAction.selectedTargets = reconstructedSelected;
+    // Mirror into previewTargets so the UI draws an arrow even before confirmation
+    game.pendingAction.previewTargets = reconstructedSelected.map((t) => ({ ...t }));
   }
   if (payload.awaitingConfirmation !== undefined) {
     game.pendingAction.awaitingConfirmation = payload.awaitingConfirmation;
   }
+  requestRender();
 }
 
 function finalizePendingFromEvent(game, payload) {
@@ -1136,21 +1179,6 @@ function finalizePendingFromEvent(game, payload) {
       
       // Spend mana on opponent's side
       spendMana(player, finalPending.card.activated?.cost ?? 0);
-    }
-  } else if (payload.kind === 'trigger' && finalPending.card) {
-    // Log trigger activation
-    // The trigger description was already logged by the active player in handlePassive
-    // For the opponent, we need to log it here during event replay
-    const localSeatIndex = getLocalSeatIndex();
-    const isLocalPlayerActive = localSeatIndex === game.currentPlayer;
-    
-    // Only log for the opponent (active player already logged it in handlePassive)
-    if (!isLocalPlayerActive && finalPending.card.passive?.description) {
-      addLog([
-        cardSegment(finalPending.card),
-        textSegment(' triggers: '),
-        textSegment(finalPending.card.passive.description)
-      ], undefined, 'spell');
     }
   }
   
