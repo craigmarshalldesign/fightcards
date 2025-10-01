@@ -293,7 +293,21 @@ export function isTargetablePlayer(playerIndex, pending) {
 
 function resolveTriggeredPending(pending) {
   const game = state.game;
-  resolveEffects(pending.effects, pending);
+  
+  // CRITICAL: In multiplayer, emit event instead of executing locally
+  if (isMultiplayerMatchActive()) {
+    enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_RESOLVED, {
+      controller: pending.controller,
+      kind: 'trigger',
+      card: pending.card ? cardToEventPayload(pending.card) : null,
+      chosenTargets: pending.chosenTargets,
+      effects: pending.effects,
+    });
+  } else {
+    // Single player: execute immediately
+    resolveEffects(pending.effects, pending);
+  }
+  
   if (game.pendingAction === pending) {
     cleanupPending(pending);
     game.pendingAction = null;
@@ -301,7 +315,12 @@ function resolveTriggeredPending(pending) {
   requestRender();
   checkForWinner();
   continueAIIfNeeded();
-  notifyTriggerResolved();
+  
+  // CRITICAL: In multiplayer, don't call notifyTriggerResolved here
+  // It will be called when the PENDING_RESOLVED event is processed
+  if (!isMultiplayerMatchActive()) {
+    notifyTriggerResolved();
+  }
 }
 
 function executeSpell(pending) {

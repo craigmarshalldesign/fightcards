@@ -6,7 +6,7 @@ import { recordCreatureLoss, recordDamageToPlayer } from './core/stats.js';
 import { isMultiplayerMatchActive, enqueueMatchEvent, MULTIPLAYER_EVENT_TYPES } from '../multiplayer/runtime.js';
 
 function cardLite(card) {
-  return card ? { id: card.id, instanceId: card.instanceId } : null;
+  return card ? { id: card.id, instanceId: card.instanceId, name: card.name } : null;
 }
 
 let checkForWinnerHook = () => {};

@@ -109,7 +109,7 @@ export const greenSpells = [
     type: 'spell',
     color: 'green',
     cost: 5,
-    text: 'Give all friendly creatures +1/+0 and Stomp.',
+    text: 'Give all friendly creatures +1/+0 and Stomp until end of turn.',
     effects: [
       { type: 'teamBuff', attack: 1, toughness: 0 },
       { type: 'grantStompToAll' },

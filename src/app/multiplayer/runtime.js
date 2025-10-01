@@ -10,6 +10,7 @@ import {
   prepareSpell,
   confirmPendingAction,
   prepareBlocks,
+  handlePassive,
 } from '../game/core/flow.js';
 import { addLog, cardSegment, playerSegment, textSegment, damageSegment } from '../game/log.js';
 import { dealDamageToPlayer, dealDamageToCreature, checkForDeadCreatures, getCreatureStats } from '../game/creatures.js';
@@ -838,6 +839,9 @@ function handleCardPlayed(game, payload) {
     
     // CRITICAL: Record creature summon for stats tracking (for creatures played directly without targeting)
     recordCardPlay(payload.controller, 'creature');
+    
+    // CRITICAL: Handle onEnter passives (like Primal Behemoth's globalBuff)
+    handlePassive(fullCard, payload.controller, 'onEnter');
   } else if (payload.zone === 'graveyard') {
     player.graveyard.push(fullCard);
     addLog([playerSegment(player), textSegment(' resolves '), cardSegment(fullCard), textSegment('.')]);
@@ -1090,6 +1094,15 @@ function finalizePendingFromEvent(game, payload) {
   resolveEffects(payload.effects || [], pending);
   cleanupPending(pending);
   game.pendingAction = null;
+  
+  // CRITICAL: If we're in combat trigger stage, notify the trigger system
+  // This allows the combat to continue to the blocking phase
+  if (game.combat?.stage === 'triggers' && game.combat?.resolvingTrigger) {
+    // Import notifyTriggerResolved dynamically to avoid circular dependency
+    import('../game/combat/triggers.js').then(module => {
+      module.notifyTriggerResolved();
+    });
+  }
 }
 
 function createCardEventLog(type, payload) {
