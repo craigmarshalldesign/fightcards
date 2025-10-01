@@ -16,10 +16,19 @@ function finalizeTriggerStage() {
   delete game.combat.triggerOptions;
   requestRender();
   
-  // CRITICAL: Always call prepareBlocks directly
-  // In multiplayer, both players reach this point via ATTACKERS_CONFIRMED event replay
-  // We can't emit another event here because we're already inside event replay (replayingEvents === true)
-  prepareBlocks();
+  // CRITICAL: In multiplayer, only the active player should call prepareBlocks
+  // The opponent will set up blocking when they receive BLOCKING_STARTED event
+  if (isMultiplayerMatchActive()) {
+    // Delay prepareBlocks to ensure we're out of any event processing context
+    setTimeout(() => {
+      if (state.game?.combat) {
+        prepareBlocks();
+      }
+    }, 0);
+  } else {
+    // Single player: call immediately
+    prepareBlocks();
+  }
   
   const latestGame = state.game;
   if (options?.onComplete && !latestGame?.blocking) {
@@ -51,7 +60,10 @@ function processNextTrigger() {
   game.combat.activeTrigger = next;
   game.combat.resolvingTrigger = true;
   triggerAttackPassive(next.creature, next.controller);
-  if (!state.game.pendingAction && game.combat.resolvingTrigger) {
+  // CRITICAL: In multiplayer, don't auto-complete the trigger
+  // We need to wait for the PENDING_RESOLVED event to come back
+  // In single-player, we can complete immediately if there's no pending action
+  if (!isMultiplayerMatchActive() && !state.game.pendingAction && game.combat.resolvingTrigger) {
     completeCurrentTrigger();
   }
 }

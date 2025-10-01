@@ -39,6 +39,13 @@ export function prepareBlocks() {
     }
     game.blocking.awaitingDefender = true;
     requestRender();
+    // CRITICAL: Emit BLOCKING_STARTED even when no blockers available
+    // This allows the opponent to see the combat state and proceed
+    if (isMultiplayerMatchActive()) {
+      enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.BLOCKING_STARTED, {
+        defender: defending,
+      });
+    }
     return;
   }
   if (game.players[defending].isAI) {

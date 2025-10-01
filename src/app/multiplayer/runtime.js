@@ -119,11 +119,16 @@ export function updateMultiplayerMatch(partial) {
  * This prevents infinite loops where replaying an event creates a new event, which gets replayed, etc.
  */
 export async function enqueueMatchEvent(type, payload) {
-  if (!state.multiplayer.match) return;
-  // CRITICAL: Do not create new events while replaying existing events
-  if (state.multiplayer.replayingEvents) {
+  if (!state.multiplayer.match) {
+    console.log('enqueueMatchEvent: no match, returning', type);
     return;
   }
+  // CRITICAL: Do not create new events while replaying existing events
+  if (state.multiplayer.replayingEvents) {
+    console.log('enqueueMatchEvent: replayingEvents is true, blocking event', type);
+    return;
+  }
+  console.log('enqueueMatchEvent: creating event', type, payload);
   const match = state.multiplayer.match;
   const nextSequence = match.nextSequence ?? 1;
   
@@ -673,13 +678,31 @@ function applyMatchEvent(game, event) {
         textSegment(` attacks with ${game.combat.attackers.length} creature(s).`)
       ]);
       
-      // CRITICAL: Process attack triggers for both players
-      // This event is replayed for BOTH the attacker and defender
-      // startTriggerStage() will eventually call finalizeTriggerStage() which calls prepareBlocks()
-      startTriggerStage();
+      // CRITICAL: Only the active player should process triggers and emit PENDING_RESOLVED events
+      // The opponent will receive and apply those events through the normal event replay
+      // The active player will emit BLOCKING_STARTED when all triggers are done
+      const isActivePlayer = getLocalSeatIndex() === game.currentPlayer;
+      if (isActivePlayer) {
+        // Active player: Delay trigger processing until after event replay completes
+        // This ensures enqueueMatchEvent() can create PENDING_RESOLVED events
+        setTimeout(() => {
+          if (state.game?.combat) {
+            startTriggerStage();
+          }
+        }, 0);
+      } else {
+        // Opponent: just set combat stage to 'triggers' and wait for BLOCKING_STARTED event
+        game.combat.stage = 'triggers';
+        game.combat.pendingTriggers = [];
+        requestRender();
+      }
       break;
     case EVENT_TYPES.BLOCKING_STARTED:
-      // CRITICAL: Call prepareBlocks to properly set up blocking state for both players
+      // CRITICAL: Set combat stage to blockers and call prepareBlocks
+      // This is needed for the opponent who was waiting in 'triggers' stage
+      if (game.combat) {
+        game.combat.stage = 'blockers';
+      }
       prepareBlocks();
       break;
     case EVENT_TYPES.BLOCKER_ASSIGNED:
@@ -946,6 +969,31 @@ function finalizePendingFromEvent(game, payload) {
   
   const pending = game.pendingAction;
   
+  // CRITICAL: For triggers, if the creature has left the battlefield, we still need to resolve the effect
+  // Create a minimal pending object from the payload so effects can still be applied
+  if (!pending && payload.kind === 'trigger') {
+    game.pendingAction = {
+      type: 'trigger',
+      controller: payload.controller,
+      card: payload.card, // Use the card stub from payload
+      effects: payload.effects || [],
+      requirements: [],
+      requirementIndex: 0,
+      chosenTargets: payload.chosenTargets || {},
+      awaitingConfirmation: false,
+      selectedTargets: [],
+      cancellable: false,
+    };
+  }
+  
+  const finalPending = game.pendingAction;
+  
+  // CRITICAL: If we still don't have a pending action, we can't proceed
+  if (!finalPending) {
+    console.error('Failed to create pending action for PENDING_RESOLVED event', payload);
+    return;
+  }
+  
   // CRITICAL: Reconstruct full creature targets from battlefield instead of using stubs
   // The payload.chosenTargets contains creature stubs (just id/instanceId)
   // We need to replace them with the actual creatures from the battlefield
@@ -970,7 +1018,7 @@ function finalizePendingFromEvent(game, payload) {
       });
     });
   }
-  pending.chosenTargets = reconstructedTargets;
+  finalPending.chosenTargets = reconstructedTargets;
   
   const player = getControllerPlayer(game, payload.controller);
   
@@ -994,7 +1042,7 @@ function finalizePendingFromEvent(game, payload) {
         recordCardPlay(payload.controller, 'creature');
       }
     }
-  } else if (payload.kind === 'spell' && pending.card) {
+  } else if (payload.kind === 'spell' && finalPending.card) {
     // Handle spell casting
     if (player) {
       // NOTE: Card was already removed from hand in PENDING_CREATED event
@@ -1002,12 +1050,12 @@ function finalizePendingFromEvent(game, payload) {
       
       // Build target segments for log
       const targetSegments = [];
-      if (pending.chosenTargets) {
-        const effectIndexes = Object.keys(pending.chosenTargets)
+      if (finalPending.chosenTargets) {
+        const effectIndexes = Object.keys(finalPending.chosenTargets)
           .map((k) => Number.parseInt(k, 10))
           .sort((a, b) => a - b);
         for (const idx of effectIndexes) {
-          const targets = pending.chosenTargets[idx] || [];
+          const targets = finalPending.chosenTargets[idx] || [];
           if (!targets.length) continue;
           const parts = [textSegment(' on ')];
           targets.forEach((t, i) => {
@@ -1030,29 +1078,29 @@ function finalizePendingFromEvent(game, payload) {
       addLog([
         playerSegment(player),
         textSegment(' casts '),
-        cardSegment(pending.card),
+        cardSegment(finalPending.card),
         ...targetSegments,
         textSegment('.'),
       ], undefined, 'spell');
       
       // Spend mana
-      spendMana(player, pending.card.cost ?? 0);
+      spendMana(player, finalPending.card.cost ?? 0);
       
       // Add to graveyard
-      player.graveyard.push(pending.card);
+      player.graveyard.push(finalPending.card);
       
       // CRITICAL: Record spell cast for stats tracking
       recordCardPlay(payload.controller, 'spell');
     }
-  } else if (payload.kind === 'ability' && pending.card) {
+  } else if (payload.kind === 'ability' && finalPending.card) {
     // Log ability activation for the opponent
     const targetSegments = [];
-    if (pending.chosenTargets) {
-      const effectIndexes = Object.keys(pending.chosenTargets)
-        .map((k) => Number.parseInt(k, 10))
+    if (finalPending.chosenTargets) {
+      const effectIndexes = Object.keys(finalPending.chosenTargets)
+          .map((k) => Number.parseInt(k, 10))
         .sort((a, b) => a - b);
       for (const idx of effectIndexes) {
-        const targets = pending.chosenTargets[idx] || [];
+        const targets = finalPending.chosenTargets[idx] || [];
         if (!targets.length) continue;
         const parts = [textSegment(' on ')];
         targets.forEach((t, i) => {
@@ -1075,33 +1123,53 @@ function finalizePendingFromEvent(game, payload) {
       addLog([
         playerSegment(player),
         textSegment(' activates '),
-        cardSegment(pending.card),
-        textSegment(`'s ${pending.card.activated?.name || 'ability'}`),
+        cardSegment(finalPending.card),
+        textSegment(`'s ${finalPending.card.activated?.name || 'ability'}`),
         ...targetSegments,
         textSegment('.'),
       ]);
       
       // Mark the creature as having activated (for multiplayer opponent's side)
-      if (pending.card.activated) {
-        pending.card.activatedThisTurn = true;
+      if (finalPending.card.activated) {
+        finalPending.card.activatedThisTurn = true;
       }
       
       // Spend mana on opponent's side
-      spendMana(player, pending.card.activated?.cost ?? 0);
+      spendMana(player, finalPending.card.activated?.cost ?? 0);
+    }
+  } else if (payload.kind === 'trigger' && finalPending.card) {
+    // Log trigger activation
+    // The trigger description was already logged by the active player in handlePassive
+    // For the opponent, we need to log it here during event replay
+    const localSeatIndex = getLocalSeatIndex();
+    const isLocalPlayerActive = localSeatIndex === game.currentPlayer;
+    
+    // Only log for the opponent (active player already logged it in handlePassive)
+    if (!isLocalPlayerActive && finalPending.card.passive?.description) {
+      addLog([
+        cardSegment(finalPending.card),
+        textSegment(' triggers: '),
+        textSegment(finalPending.card.passive.description)
+      ], undefined, 'spell');
     }
   }
   
-  resolveEffects(payload.effects || [], pending);
-  cleanupPending(pending);
+  resolveEffects(payload.effects || [], finalPending);
+  cleanupPending(finalPending);
   game.pendingAction = null;
   
-  // CRITICAL: If we're in combat trigger stage, notify the trigger system
-  // This allows the combat to continue to the blocking phase
-  if (game.combat?.stage === 'triggers' && game.combat?.resolvingTrigger) {
-    // Import notifyTriggerResolved dynamically to avoid circular dependency
-    import('../game/combat/triggers.js').then(module => {
-      module.notifyTriggerResolved();
-    });
+  // CRITICAL: Only the active player should advance the trigger queue
+  // The opponent just applies effects and waits for BLOCKING_STARTED event
+  const localSeatIndex = getLocalSeatIndex();
+  const isLocalPlayerActive = localSeatIndex === game.currentPlayer;
+  
+  if (game.combat?.stage === 'triggers' && game.combat?.resolvingTrigger && isLocalPlayerActive) {
+    // Active player: advance trigger queue after a delay to allow event to be created
+    setTimeout(() => {
+      import('../game/combat/triggers.js').then(module => {
+        module.notifyTriggerResolved();
+      });
+    }, 0);
   }
 }
 

@@ -59,7 +59,7 @@ import { checkForWinner, continueAIIfNeeded } from './runtime.js';
 import { dealDamageToPlayer, registerWinnerHook } from '../creatures.js';
 import { createInitialStats, recordTurnStart, recordCardPlay } from './stats.js';
 
-function cardToEventPayload(card) {
+export function cardToEventPayload(card) {
   if (!card) return null;
   const { id, instanceId, name, type, color, cost } = card;
   return { id, instanceId, name, type, color, cost };
@@ -329,8 +329,37 @@ export function handlePassive(card, controllerIndex, trigger) {
       }
 
       if (needsSelection) {
+        console.log('handlePassive: needsSelection is true, card:', card.name, 'isMultiplayer:', isMultiplayerMatchActive());
+        
+        // CRITICAL: For optional triggers, show buttons immediately so player knows they can cancel
+        // For required triggers with allowLess, also show buttons so player can proceed when ready
+        const shouldShowButtons = isOptional || requirements.some(r => r.allowLess);
+        if (shouldShowButtons) {
+          pending.awaitingConfirmation = true;
+        }
+        
         state.game.pendingAction = pending;
+        
+        // CRITICAL: In multiplayer, emit PENDING_CREATED so opponent sees targeting UI
+        // We're already outside event replay context (called from trigger processing),
+        // so we can emit synchronously
+        if (isMultiplayerMatchActive()) {
+          console.log('handlePassive: about to emit PENDING_CREATED for', card.name);
+          enqueueMatchEvent(MULTIPLAYER_EVENT_TYPES.PENDING_CREATED, {
+            controller: controllerIndex,
+            kind: 'trigger',
+            card: cardToEventPayload(card),
+            effects: pending.effects,
+            requirements: pending.requirements,
+            requirementIndex: pending.requirementIndex,
+            chosenTargets: pending.chosenTargets,
+            awaitingConfirmation: pending.awaitingConfirmation,
+          });
+          console.log('handlePassive: PENDING_CREATED emitted');
+        }
+        
         requestRender();
+        
         if (player.isAI) {
           scheduleAIPendingResolution(pending);
         }
@@ -704,5 +733,4 @@ export {
   skipCombatWrapper as skipCombat,
   startCombatStage,
   toggleAttacker,
-  cardToEventPayload,
 };
