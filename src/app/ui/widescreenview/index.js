@@ -36,27 +36,29 @@ export function renderGameWide() {
   const isHandOpen = state.ui.wideHandOpen || false;
 
   return `
-    <div class="view game-view wide-game-view">
-      ${renderWideBattlefield({ player, opponent, game })}
-      
-      <!-- Widescreen overlays -->
-      <div class="wide-overlays">
-        ${renderWideLifeGlobes({ player, opponent, game, localSeatIndex, opponentIndex })}
-        ${renderWidePlayerBars({ player, opponent, game, localSeatIndex, opponentIndex })}
-        ${renderWidePhaseBox(game)}
-        ${renderWideActiveSpellSlot(game)}
-        ${renderWideCombatBar(game)}
-        ${renderWideLogs({ battleLogEntries, spellLogEntries })}
-      </div>
+    <div class="wide-mobile-wrapper">
+      <div class="view game-view wide-game-view">
+        ${renderWideBattlefield({ player, opponent, game })}
 
-      ${renderWideHand(player, game, isHandOpen)}
-      ${renderWideSettingsMenu()}
-      ${renderWideCardPreview()}
-      ${renderTargetLines(game)}
-      ${renderAttackLines(game)}
-      ${renderCardPreviewModal(game)}
-      ${renderGraveyardModal(game)}
-      ${renderEndGameModal()}
+        <!-- Widescreen overlays -->
+        <div class="wide-overlays">
+          ${renderWideLifeGlobes({ player, opponent, game, localSeatIndex, opponentIndex })}
+          ${renderWidePlayerBars({ player, opponent, game, localSeatIndex, opponentIndex })}
+          ${renderWidePhaseBox(game)}
+          ${renderWideActiveSpellSlot(game)}
+          ${renderWideCombatBar(game)}
+          ${renderWideLogs({ battleLogEntries, spellLogEntries })}
+        </div>
+
+        ${renderWideHand(player, game, isHandOpen)}
+        ${renderWideSettingsMenu()}
+        ${renderWideCardPreview()}
+        ${renderTargetLines(game)}
+        ${renderAttackLines(game)}
+        ${renderCardPreviewModal(game)}
+        ${renderGraveyardModal(game)}
+        ${renderEndGameModal()}
+      </div>
     </div>
   `;
 }

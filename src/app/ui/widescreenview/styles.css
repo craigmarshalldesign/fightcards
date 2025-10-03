@@ -93,6 +93,62 @@
   color: #fef2f2;
 }
 
+/* Mobile orientation wrapper */
+.wide-mobile-wrapper {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  --wide-mobile-scale: 1;
+}
+
+@media (min-width: 901px) {
+  .wide-mobile-wrapper {
+    position: fixed;
+    inset: 0;
+  }
+
+  .wide-mobile-wrapper .wide-game-view {
+    position: fixed;
+    top: 0;
+    left: 0;
+    transform: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .wide-mobile-wrapper {
+    background: transparent;
+  }
+
+  .wide-mobile-wrapper .wide-game-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: center;
+  }
+
+  .wide-mobile-wrapper.wide-mobile-active .wide-game-view {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(var(--wide-mobile-scale));
+  }
+
+  .wide-mobile-wrapper.wide-mobile-active.wide-mobile-portrait .wide-game-view {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(90deg) scale(var(--wide-mobile-scale));
+  }
+
+  .wide-mobile-wrapper.wide-mobile-measuring .wide-game-view {
+    transform: none !important;
+    top: 0;
+    left: 0;
+    position: absolute;
+  }
+}
+
 /* Widescreen Game View */
 .wide-game-view {
   position: fixed;
