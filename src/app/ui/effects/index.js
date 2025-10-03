@@ -1,4 +1,5 @@
 import { attachParticleField, resetParticleFields } from './particleField.js';
+import { applyWideMobileOrientation } from '../widescreenview/mobile-orientation.js';
 
 const PARTICLE_SCREENS = new Set([
   'menu',
@@ -10,6 +11,7 @@ const PARTICLE_SCREENS = new Set([
 ]);
 
 export function enhanceView(root, screen) {
+  applyWideMobileOrientation(root);
   resetParticleFields();
   if (!PARTICLE_SCREENS.has(screen)) {
     return;
