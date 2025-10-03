@@ -101,11 +101,19 @@ function renderActiveSpellSlot(game) {
   const localSeatIndex = getLocalSeatIndex();
   const isPlayerAction = pending?.controller === localSeatIndex;
   
-  const confirmButton = isPlayerAction && pending?.awaitingConfirmation
-    ? '<button data-action="confirm-pending" class="confirm">Choose</button>'
-    : isPlayerAction && requirement?.allowLess
-      ? `<button class="mini" data-action="confirm-targets">Confirm Targets (${selectedCount}/${requiredCount})</button>`
-      : '';
+  // Show "Choose" button when:
+  // 1. Awaiting final confirmation (after all requirements met)
+  // 2. For single-target spells (count=1, not allowLess): show when 1+ target selected
+  // 3. For optional spells (allowLess=true): show even with 0 targets selected
+  const showChooseButton = isPlayerAction && (
+    pending?.awaitingConfirmation ||
+    (selectedCount >= requiredCount && requiredCount === 1 && !requirement?.allowLess) ||
+    (requirement?.allowLess && selectedCount >= 0)
+  );
+  
+  const confirmButton = showChooseButton
+    ? '<button class="confirm" data-action="confirm-targets">Choose</button>'
+    : '';
   const cancelButton = isPlayerAction && pending && pending.cancellable !== false
     ? '<button class="mini cancel" data-action="cancel-action">Cancel</button>'
     : '';

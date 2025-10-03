@@ -44,6 +44,10 @@ export const initialState = {
     openGraveFor: null, // controller index (0 = player, 1 = opponent)
     showEndGameModal: false,
     aiDifficulty: 'easy', // 'easy' or 'hard'
+    viewMode: 'classic', // 'classic' or 'wide' (only for game screen)
+    wideHandOpen: false, // toggle for widescreen hand tray
+    wideSettingsMenuOpen: false, // toggle for widescreen settings dropdown
+    isFullscreen: false, // tracks fullscreen state
   },
 };
 

@@ -99,7 +99,10 @@ export function scheduleAIPendingResolution(pending) {
     chosenTargets.forEach((target) => selectTargetForPending(target));
     const currentReq = pending.requirements?.[pending.requirementIndex];
     const requiredCount = currentReq?.count ?? 1;
-    if (currentReq?.allowLess && (pending.selectedTargets?.length ?? 0) < requiredCount) {
+    // AI finalization policy after selecting targets:
+    // - If allowLess: finalize immediately (AI has chosen the set it wants)
+    // - If required count met (including single-target): finalize to advance flow
+    if (currentReq?.allowLess || (pending.selectedTargets?.length ?? 0) >= requiredCount) {
       finalizeCurrentRequirement();
     }
   }, AI_PENDING_DELAY);
@@ -121,7 +124,40 @@ export function selectTargetForPending(target) {
     requestRender();
     return false;
   }
-  pending.selectedTargets.push(target);
+  
+  const requiredCount = requirement.count ?? 1;
+  
+  // Helper to uniquely identify a target
+  const targetKey = (t) => {
+    if (!t) return 'x';
+    if (t.type === 'player') return `p:${t.controller}`;
+    const id = t.creature?.instanceId ?? 'x';
+    return `c:${t.controller}:${id}`;
+  };
+  
+  const incomingKey = targetKey(target);
+  const existingIndex = pending.selectedTargets.findIndex((t) => targetKey(t) === incomingKey);
+  
+  // For single-target requirements, always replace
+  if (requiredCount === 1) {
+    pending.selectedTargets = [target];
+  } else {
+    // Multi-target: maintain a unique, ordered list of most-recent selections
+    if (existingIndex === -1) {
+      pending.selectedTargets.push(target);
+    } else {
+      // If user clicks the same target again, treat as no-op (don't duplicate)
+      // Optionally move it to the end to mark it most recent
+      const existing = pending.selectedTargets.splice(existingIndex, 1)[0];
+      pending.selectedTargets.push(existing);
+    }
+    
+    // Enforce maximum = requiredCount by discarding oldest selections
+    while (pending.selectedTargets.length > requiredCount) {
+      pending.selectedTargets.shift();
+    }
+  }
+  
   // Keep a live preview so both players see an arrow immediately
   pending.previewTargets = pending.selectedTargets.map((t) => ({ ...t }));
   
@@ -135,8 +171,15 @@ export function selectTargetForPending(target) {
     });
   }
   
-  const isComplete = pending.selectedTargets.length >= (requirement.count ?? 1);
-  if (isComplete) {
+  const isComplete = pending.selectedTargets.length >= requiredCount;
+  
+  // Targeting behavior:
+  // - If allowLess=true: Never auto-finalize, player uses "Choose" button to confirm 0-N targets
+  // - If count=1 and NOT allowLess: Don't auto-finalize, let player change target and click "Choose"
+  // - If count>1 and NOT allowLess: Auto-finalize when reaching required count (can't go over)
+  const shouldAutoFinalize = isComplete && requiredCount > 1 && !requirement.allowLess;
+  
+  if (shouldAutoFinalize) {
     finalizeCurrentRequirement();
   } else {
     requestRender();

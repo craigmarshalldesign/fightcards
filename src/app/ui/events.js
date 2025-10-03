@@ -21,6 +21,54 @@ import {
   convertMatchToGame,
   canCurrentUserAct,
 } from './multiplayer/events.js';
+import { findCardInHand, showCardPreview, hideCardPreview } from './widescreenview/wide-cardpreview.js';
+
+/**
+ * Fullscreen utility functions
+ */
+async function enterFullscreen() {
+  try {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) {
+      await elem.requestFullscreen();
+    } else if (elem.webkitRequestFullscreen) { // Safari
+      await elem.webkitRequestFullscreen();
+    } else if (elem.msRequestFullscreen) { // IE11
+      await elem.msRequestFullscreen();
+    }
+    state.ui.isFullscreen = true;
+  } catch (err) {
+    console.warn('Failed to enter fullscreen:', err);
+  }
+}
+
+async function exitFullscreen() {
+  try {
+    if (document.exitFullscreen) {
+      await document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) { // Safari
+      await document.webkitExitFullscreen();
+    } else if (document.msExitFullscreen) { // IE11
+      await document.msExitFullscreen();
+    }
+    state.ui.isFullscreen = false;
+  } catch (err) {
+    console.warn('Failed to exit fullscreen:', err);
+  }
+}
+
+// Listen for fullscreen changes (user pressing ESC or F11)
+if (typeof document !== 'undefined') {
+  document.addEventListener('fullscreenchange', () => {
+    const isCurrentlyFullscreen = Boolean(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.msFullscreenElement
+    );
+    state.ui.isFullscreen = isCurrentlyFullscreen;
+    requestRender();
+  });
+}
 
 export function attachEventHandlers(root) {
   attachMultiplayerEventHandlers(root);
@@ -65,6 +113,7 @@ export function attachEventHandlers(root) {
   root.querySelectorAll('[data-action="show-end-game-modal"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.ui.showEndGameModal = true;
+      state.ui.wideSettingsMenuOpen = false; // Close settings menu
       requestRender();
     });
   });
@@ -168,6 +217,93 @@ export function attachEventHandlers(root) {
     });
   });
 
+  root.querySelectorAll('[data-action="toggle-viewmode"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const switchingToWide = state.ui.viewMode === 'classic';
+      state.ui.viewMode = switchingToWide ? 'wide' : 'classic';
+      // Close settings menu if open
+      state.ui.wideSettingsMenuOpen = false;
+      
+      // Auto-enter fullscreen when switching to wide view
+      if (switchingToWide) {
+        await enterFullscreen();
+      } else {
+        // Exit fullscreen when switching to classic view
+        await exitFullscreen();
+      }
+      
+      requestRender();
+    });
+  });
+
+  root.querySelectorAll('[data-action="toggle-wide-hand"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ui.wideHandOpen = !state.ui.wideHandOpen;
+      requestRender();
+    });
+  });
+
+  // Widescreen settings menu toggle
+  root.querySelectorAll('[data-action="toggle-wide-settings"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.ui.wideSettingsMenuOpen = !state.ui.wideSettingsMenuOpen;
+      requestRender();
+    });
+  });
+
+  // Close settings menu when clicking outside
+  if (state.ui.wideSettingsMenuOpen) {
+    const closeSettingsMenu = (e) => {
+      const settingsContainer = e.target.closest('.wide-settings-container');
+      if (!settingsContainer && state.ui.wideSettingsMenuOpen) {
+        state.ui.wideSettingsMenuOpen = false;
+        requestRender();
+        document.removeEventListener('click', closeSettingsMenu);
+      }
+    };
+    // Add listener after a small delay to avoid immediate closure
+    setTimeout(() => {
+      document.addEventListener('click', closeSettingsMenu);
+    }, 10);
+  }
+
+  // Fullscreen controls
+  root.querySelectorAll('[data-action="enter-fullscreen"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await enterFullscreen();
+      state.ui.wideSettingsMenuOpen = false;
+      requestRender();
+    });
+  });
+
+  root.querySelectorAll('[data-action="exit-fullscreen"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await exitFullscreen();
+      state.ui.wideSettingsMenuOpen = false;
+      requestRender();
+    });
+  });
+
+  // Widescreen hand card hover preview (instant, no re-render)
+  root.querySelectorAll('.wide-hand-card-peek').forEach((cardEl) => {
+    cardEl.addEventListener('mouseenter', () => {
+      const instanceId = cardEl.getAttribute('data-card');
+      if (instanceId && state.game && !state.ui.wideHandOpen) {
+        const card = findCardInHand(state.game, instanceId);
+        if (card) {
+          showCardPreview(card, state.game);
+        }
+      }
+    });
+
+    cardEl.addEventListener('mouseleave', () => {
+      if (!state.ui.wideHandOpen) {
+        hideCardPreview();
+      }
+    });
+  });
+
   const emailForm = root.querySelector('#email-form');
   if (emailForm) {
     emailForm.addEventListener('submit', async (event) => {
@@ -265,12 +401,35 @@ function bindGameEvents(root) {
   root.querySelectorAll('[data-action="confirm-targets"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       finalizeCurrentRequirement();
+      // If finalizing moved us into confirmation, immediately confirm
+      const pending = state.game?.pendingAction;
+      if (pending?.awaitingConfirmation) {
+        confirmPendingAction();
+      }
     });
   });
 
+  // Choose button used on card ability panels (classic + widescreen battlefield)
+  // If we're still in the requirements phase, finalize the current requirement first.
+  // If that moved us to awaitingConfirmation, immediately confirm the pending action.
   root.querySelectorAll('[data-action="confirm-pending"]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      confirmPendingAction();
+      const pending = state.game?.pendingAction;
+      if (!pending) return;
+      const totalReqs = pending.requirements?.length ?? 0;
+      const hasUnfinalizedRequirement = totalReqs > 0 && pending.requirementIndex < totalReqs;
+      // Always finalize the current requirement if one is active, even if awaitingConfirmation
+      // was pre-set (e.g., optional triggers). This ensures selectedTargets are copied into
+      // chosenTargets before confirming.
+      if (hasUnfinalizedRequirement) {
+        finalizeCurrentRequirement();
+      }
+      const next = state.game?.pendingAction;
+      if (next?.awaitingConfirmation) {
+        confirmPendingAction();
+      } else {
+        requestRender();
+      }
     });
   });
 
@@ -481,12 +640,21 @@ function positionTargetLines(root) {
       return; // Can't find source creature, skip positioning
     }
   } else {
-    // Default to active spell panel for spells
-    const activePanel = root.querySelector('.active-spell-panel');
+    // Default to active spell panel for spells (classic or widescreen)
+    const activePanel = root.querySelector('.active-spell-panel') || root.querySelector('.wide-active-spell-slot');
     if (!activePanel) return;
     const sourceRect = activePanel.getBoundingClientRect();
-    startX = sourceRect.left + sourceRect.width / 2 - containerRect.left;
-    startY = sourceRect.bottom - containerRect.top;
+    
+    // For widescreen, origin from the left side of the panel
+    const isWidescreen = activePanel.classList.contains('wide-active-spell-slot');
+    if (isWidescreen) {
+      startX = sourceRect.left - containerRect.left;
+      startY = sourceRect.top + sourceRect.height / 2 - containerRect.top;
+    } else {
+      // Classic view: origin from bottom center
+      startX = sourceRect.left + sourceRect.width / 2 - containerRect.left;
+      startY = sourceRect.bottom - containerRect.top;
+    }
   }
 
   targetLines.forEach((line) => {

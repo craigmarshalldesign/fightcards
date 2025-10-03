@@ -37,6 +37,25 @@ export function handleHandCardClick(cardId) {
   } else {
     prepareSpell(localPlayerIndex, card);
   }
+
+  // QoL: In widescreen mode, if the hand tray is open and this play
+  // creates a pending action (active spell slot), close the hand so
+  // the player can see and select targets more easily. Do NOT close
+  // for instant-resolving plays without a pending action.
+  setTimeout(() => {
+    try {
+      const shouldClose =
+        state.ui?.viewMode === 'wide' &&
+        state.ui?.wideHandOpen === true &&
+        Boolean(state.game?.pendingAction);
+      if (shouldClose) {
+        state.ui.wideHandOpen = false;
+        requestRender();
+      }
+    } catch (_) {
+      // no-op
+    }
+  }, 0);
 }
 
 export function handleCreatureClick(cardId, controller) {

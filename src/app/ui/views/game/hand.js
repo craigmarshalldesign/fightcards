@@ -41,6 +41,9 @@ export function renderHandArea(player, game) {
       <div class="hand-footer">
         <button class="ghost mini" data-action="show-end-game-modal">End Game</button>
       </div>
+      <div class="hand-footer">
+        <button class="ghost mini" data-action="toggle-viewmode" title="Switch to widescreen view">🖥️ Widescreen</button>
+      </div>
     </section>
   `;
 }

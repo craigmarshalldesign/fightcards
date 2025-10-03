@@ -8,10 +8,16 @@ import { renderPhaseIndicator } from './phaseIndicator.js';
 import { getLocalSeatIndex } from '../../../multiplayer/runtime.js';
 import { renderHandArea } from './hand.js';
 import { renderCardPreviewModal, renderEndGameModal } from './modals.js';
+import { renderGameWide } from '../../widescreenview/index.js';
 
 export function renderGame() {
   const { game } = state;
   if (!game) return '';
+
+  // CRITICAL: Delegate to widescreen view if viewMode is 'wide'
+  if (state.ui.viewMode === 'wide') {
+    return renderGameWide();
+  }
 
   // CRITICAL: Use local seat to determine which player is "you" vs "opponent"
   const localSeatIndex = getLocalSeatIndex();

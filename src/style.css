@@ -37,14 +37,26 @@ body {
 }
 
 @media (min-width: 900px) {
-  body {
+  body:not(:has(.wide-game-view)) {
     padding: 2rem;
   }
 
-  #app {
+  #app:not(:has(.wide-game-view)) {
     max-width: 1200px;
     height: calc(100svh - 4rem);
     border-radius: 24px;
+  }
+  
+  /* Full screen for widescreen view */
+  body:has(.wide-game-view) {
+    padding: 0;
+  }
+  
+  #app:has(.wide-game-view) {
+    max-width: none;
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
   }
 }
 
@@ -65,6 +77,12 @@ body {
   flex-direction: column;
   overflow-y: auto;
   backdrop-filter: blur(6px);
+}
+
+/* No padding/overflow for widescreen view */
+.ui-layer:has(.wide-game-view) {
+  padding: 0;
+  overflow: hidden;
 }
 
 .view {
@@ -1501,8 +1519,18 @@ input {
 }
 
 .ability-row { display: flex; }
-.ability-button .ability-name { font-weight: 700; color: #cbd5e1; font-size: 0.75rem; }
-.ability-button .ability-label { font-weight: 600; color: #e5e7eb; font-size: 0.72rem; text-align: left; }
+.ability-button .ability-name { 
+  font-weight: 700; 
+  color: #cbd5e1; 
+  font-size: 0.75rem;
+  text-align: left;
+}
+.ability-button .ability-label { 
+  font-weight: 600; 
+  color: #e5e7eb; 
+  font-size: 0.72rem; 
+  text-align: left;
+}
 
 /* Status chips */
 .status-chips {
@@ -1610,7 +1638,8 @@ input {
 
 /* Unified ability button styling */
 .ability-button {
-  display: inline-flex;
+  display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 0.4rem;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1667,6 +1696,16 @@ input {
   width: 18px;
   height: 18px;
   font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.ability-text-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
 }
 
 .ability-button:disabled,
@@ -2784,3 +2823,4 @@ button.disabled {
   font-size: 0.78rem;
   color: #cbd5f5;
 }
+

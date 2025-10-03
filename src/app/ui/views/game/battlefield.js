@@ -338,8 +338,10 @@ function renderCreature(creature, controllerIndex, game) {
       `<div class="ability-row">
          <button class="ability-button ${!canActivate ? 'disabled' : ''}" data-action="activate" data-creature="${creature.instanceId}" ${!canActivate ? 'disabled' : ''}>
            <span class="mana-gem small">${creature.activated.cost ?? 0}</span>
-           <span class="ability-name">${abilityName}</span>
-           <span class="ability-label">${escapeHtml(creature.activated.description)}</span>
+           <span class="ability-text-stack">
+             <span class="ability-name">${abilityName}</span>
+             <span class="ability-label">${escapeHtml(creature.activated.description)}</span>
+           </span>
          </button>
        </div>`,
     );

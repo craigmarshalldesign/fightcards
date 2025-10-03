@@ -43,6 +43,7 @@ export function buildEffectRequirements(effects = []) {
             ...requirementBase,
             count: 1,
             target: effect.target === 'creature' ? 'creature' : effect.target,
+            allowLess: true, // Allow casting with 0 targets
           };
           if (effect.target === 'any') {
             requirement.allowPlayers = true;
@@ -53,21 +54,21 @@ export function buildEffectRequirements(effects = []) {
       }
       case 'buff': {
         if (effect.target === 'friendly-creature' || effect.target === 'any-creature') {
-          reqs.push({ ...requirementBase, count: 1, target: effect.target });
+          reqs.push({ ...requirementBase, count: 1, target: effect.target, allowLess: true });
         }
         break;
       }
       case 'temporaryBuff': {
         if (['friendly-creature', 'any-creature', 'creature'].includes(effect.target)) {
           const target = effect.target === 'creature' ? 'creature' : effect.target;
-          reqs.push({ ...requirementBase, count: 1, target });
+          reqs.push({ ...requirementBase, count: 1, target, allowLess: true });
         }
         break;
       }
       case 'grantShimmer': {
         if (['friendly-creature', 'any-creature', 'creature'].includes(effect.target)) {
           const target = effect.target === 'creature' ? 'creature' : effect.target;
-          reqs.push({ ...requirementBase, count: 1, target });
+          reqs.push({ ...requirementBase, count: 1, target, allowLess: true });
         }
         break;
       }
@@ -94,19 +95,19 @@ export function buildEffectRequirements(effects = []) {
         break;
       }
       case 'heal': {
-        reqs.push({ ...requirementBase, count: 1, target: 'friendly-creature' });
+        reqs.push({ ...requirementBase, count: 1, target: 'friendly-creature', allowLess: true });
         break;
       }
       case 'freeze': {
         if (effect.target === 'enemy-creature') {
-          reqs.push({ ...requirementBase, count: 1, target: 'enemy-creature' });
+          reqs.push({ ...requirementBase, count: 1, target: 'enemy-creature', allowLess: true });
         }
         break;
       }
       case 'bounce': {
         if (['creature', 'friendly-creature', 'enemy-creature', 'any-creature'].includes(effect.target)) {
           const target = effect.target === 'creature' ? 'creature' : effect.target;
-          reqs.push({ ...requirementBase, count: 1, target });
+          reqs.push({ ...requirementBase, count: 1, target, allowLess: true });
         }
         break;
       }
